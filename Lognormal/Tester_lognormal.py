@@ -40,14 +40,14 @@ def create_u_grid(pts):
     return u
 
 
-def plot_dist(StressModel, filename, g_P, G_P, type="", title="", save=True, rm=None):
+def plot_dist(StressModel, filename, f, F, type="", title="", save=True, rm=None):
     y_P = np.linspace(0.01, 10, 500)
-    x_Q = np.linspace(StressModel.G_Q_inv[2], 10, 1000)
-    _, f_Q, F_Q = StressModel.distribution(StressModel.u, StressModel.G_Q_inv, x_Q)
+    x_Q = np.linspace(StressModel.Gs_inv[2], 10, 1000)
+    _, gs, Gs = StressModel.distribution(StressModel.u, StressModel.Gs_inv, x_Q)
 
     fig = plt.figure(figsize=(5, 4))
-    plt.plot(x_Q, f_Q, color='r', label='$g^*_Y$')
-    plt.plot(y_P, g_P(y_P), '--', color='b', label='$f_Y$')
+    plt.plot(x_Q, gs, color='r', label='$g^*_Y$')
+    plt.plot(y_P, f(y_P), '--', color='b', label='$f_Y$')
 
     if type == "rm-mean-std" and rm is not None:
         colors = ["r", "b"]
@@ -66,8 +66,8 @@ def plot_dist(StressModel, filename, g_P, G_P, type="", title="", save=True, rm=
         fig.savefig(filename + '_density.pdf', format='pdf')
 
     fig = plt.figure(figsize=(5, 4))
-    plt.plot(x_Q, F_Q, color='r', label='$G^*_Y$')
-    plt.plot(y_P, G_P(y_P), '--', color='b', label='$F_Y$')
+    plt.plot(x_Q, Gs, color='r', label='$G^*_Y$')
+    plt.plot(y_P, F(y_P), '--', color='b', label='$F_Y$')
     plt.xlim(0, 10)
     plt.ylim(0, 1.05)
     plt.legend(fontsize=14)
@@ -77,7 +77,7 @@ def plot_dist(StressModel, filename, g_P, G_P, type="", title="", save=True, rm=
     if save:
         fig.savefig(filename + '_CDF.pdf', format='pdf')
 
-    mask = (np.diff(StressModel.G_Q_inv) < 1e-10)
+    mask = (np.diff(StressModel.Gs_inv) < 1e-10)
     if np.sum(mask) > 0:
         idx = np.where(mask)[0][0]
     else:
@@ -85,7 +85,7 @@ def plot_dist(StressModel, filename, g_P, G_P, type="", title="", save=True, rm=
 
     fig = plt.figure(figsize=(4, 4))
 
-    dQ_dP = f_Q / g_P(x_Q)
+    dQ_dP = gs / f(x_Q)
     if type == "ES":
         dQ_dP[:idx] = 1
     plt.plot(x_Q, dQ_dP)
@@ -115,14 +115,14 @@ if __name__ == "__main__":
     u = create_u_grid(alpha)
 
     # log-normal pdf and cdf
-    g_P = lambda y: norm.pdf((np.log(y) - (mu - 0.5 * sigma ** 2)) / sigma) / (y * sigma)
-    G_P = lambda y: norm.cdf((np.log(y) - (mu - 0.5 * sigma ** 2)) / sigma)
+    f = lambda y: norm.pdf((np.log(y) - (mu - 0.5 * sigma ** 2)) / sigma) / (y * sigma)
+    F = lambda y: norm.cdf((np.log(y) - (mu - 0.5 * sigma ** 2)) / sigma)
 
     # -------------------- Generate the model -------------------- #
-    StressModel = W_Stress(y, G_P, u)
+    StressModel = W_Stress(y, F, u)
 
-    plt.plot(u, StressModel.G_P_inv)
-    plt.plot(G_P(y), y)
+    plt.plot(u, StressModel.F_inv)
+    plt.plot(F(y), y)
     plt.yscale('log')
     plt.ylim(1e-3, 1e2)
     plt.show()
@@ -149,7 +149,7 @@ if __name__ == "__main__":
 
     fig.savefig(filename + '_inv.pdf', format='pdf')
 
-    plot_dist(StressModel, filename, g_P, G_P, "ES")
+    plot_dist(StressModel, filename, f, F, "ES")
 
     # -------------------- Optimize alpha-beta risk measure -------------------- #
     p_list = [0.25, 0.5, 0.75]
@@ -174,7 +174,7 @@ if __name__ == "__main__":
 
         fig.savefig(filename + '_inv.pdf', format='pdf')
 
-        plot_dist(StressModel, filename, g_P, G_P, "ES", title=f"p={p}")
+        plot_dist(StressModel, filename, f, F, "ES", title=f"p={p}")
 
     # -------------------- Test Mean and Variance Optimisation -------------------- #
     mean_P, std_P = StressModel.get_mean_std_baseline()
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     filename = 'Plots/lognormal_M_S_20'
     fig.savefig(filename + '_inv.pdf', format='pdf')
 
-    plot_dist(StressModel, filename, g_P, G_P, "mean-std")
+    plot_dist(StressModel, filename, f, F, "mean-std")
 
     # -------------------- Test mean-variance + ES measure -------------------- #
 
@@ -214,7 +214,7 @@ if __name__ == "__main__":
         filename = f'Plots/ES-mean-std/lognormal_alpha_{alpha}_ES_{rm_stress}_M_{mean_stress}_S_{std_stress}'
         fig.savefig(filename + '_inv.pdf', format='pdf')
 
-        plot_dist(StressModel, filename, g_P, G_P, "rm-mean-std", rm=[RM_Q[0], RM_P[0]])
+        plot_dist(StressModel, filename, f, F, "rm-mean-std", rm=[RM_Q[0], RM_P[0]])
 
     # -------------------- Test Utility and risk measure -------------------- #
     hara = lambda a, b, eta, x: (1 - eta) / eta * (a * x / (1 - eta) + b) ** eta
@@ -224,13 +224,14 @@ if __name__ == "__main__":
     plt.plot(x, hara(1, b(0.2), 0.2, x))
 
     # Set gammas
+    alpha = [0.8, 0.95]
     gammas = [lambda u: (u > alpha[0]) / (1 - alpha[0]), lambda u: (u > alpha[1]) / (1 - alpha[1])]
     StressModel.set_gamma(gammas)
 
     RM_P = StressModel.get_risk_measure_baseline()
-    Utility_P = StressModel.get_hara_utility(1, b(0.2), 0.2, StressModel.u, StressModel.G_P_inv)
+    Utility_P = StressModel.get_hara_utility(1, b(0.2), 0.2, StressModel.u, StressModel.F_inv)
 
-    utility_stresses = [2]
+    utility_stresses = [0, 1, 3]
     rm_stresses = [-10, 10]
 
     for utility_stress in utility_stresses:
@@ -240,4 +241,4 @@ if __name__ == "__main__":
         filename = f'Plots/HARA-ES/lognormal_utility_{utility_stress}_ES_{rm_stresses[0]}_{rm_stresses[1]}'
         fig.savefig(filename + '_inv.pdf', format='pdf')
 
-        plot_dist(StressModel, filename, g_P, G_P, "Utility")
+        plot_dist(StressModel, filename, f, F, "Utility")

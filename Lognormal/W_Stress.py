@@ -17,22 +17,22 @@ import matplotlib.pyplot as plt
 
 class W_Stress:
 
-    def __init__(self, y, G_P, u):
-        # x, F, u, gamma
+    def __init__(self, y, F, u):
+        # x, F, u
 
         self.ir = IsotonicRegression()
         self.y = y
-        self.G_P = G_P(y)
+        self.F = F(y)
         self.u = u
 
-        # Inverse G_P
-        G_P_inv = lambda u: optimize.root_scalar(lambda y: (G_P(y) - u), method='bisect', bracket=[y[0], y[-1]])
+        # Inverse F
+        F_inv = lambda u: optimize.root_scalar(lambda y: (F(y) - u), method='bisect', bracket=[y[0], y[-1]])
 
-        self.G_P_inv = np.zeros(len(u))
+        self.F_inv = np.zeros(len(u))
         for i in range(len(u)):
-            self.G_P_inv[i] = G_P_inv(u[i]).root
+            self.F_inv[i] = F_inv(u[i]).root
 
-        self.G_Q_inv = None
+        self.Gs_inv = None
 
         # Initialize gammas (for risk constraints)
         self.gammas = []
@@ -65,8 +65,8 @@ class W_Stress:
 
         fig = plt.figure(figsize=(4, 4))
         plt.plot(self.u, ell, linewidth=0.5, color='g', label=r"$\ell$")
-        plt.plot(self.u, self.G_Q_inv, label=r"$\breve{G}^*_Y$", color='r')
-        plt.plot(self.u, self.G_P_inv, linestyle='--', color='b', label=r"$\breve{F}_Y$")
+        plt.plot(self.u, self.Gs_inv, label=r"$\breve{G}^*_Y$", color='r')
+        plt.plot(self.u, self.F_inv, linestyle='--', color='b', label=r"$\breve{F}_Y$")
         plt.title(title)
         plt.legend(fontsize=14)
 
@@ -86,7 +86,7 @@ class W_Stress:
 
         plt.subplot(2, 1, 2)
         plt.plot(self.u, ell, linewidth=0.5, color='g', label=r"$\ell$")
-        plt.plot(self.u, self.G_Q_inv, label=r"$\breve{G}^*_Y$", color='r')
+        plt.plot(self.u, self.Gs_inv, label=r"$\breve{G}^*_Y$", color='r')
         plt.legend(fontsize=14)
         plt.yscale('log')
 
@@ -97,7 +97,7 @@ class W_Stress:
     # Get statistics (Wasserstein distance, risk measure, mean, standard deviation)
     def wasserstein_distance(self):
         # Calculate the Wasserstein distance W2(G, F)
-        return np.sqrt(self.integrate((self.G_Q_inv - self.G_P_inv) ** 2, self.u))
+        return np.sqrt(self.integrate((self.Gs_inv - self.F_inv) ** 2, self.u))
 
     def get_risk_measure(self, G_inv):
         # Calculate risk measure rho = int {G_inv * gamma} du for each gamma
@@ -112,14 +112,14 @@ class W_Stress:
         return RM
 
     def get_risk_measure_baseline(self):
-        return self.get_risk_measure(self.G_P_inv)
+        return self.get_risk_measure(self.F_inv)
 
     def get_risk_measure_stressed(self):
-        if self.G_Q_inv is None:
+        if self.Gs_inv is None:
             print("Stressed distribution does not exist.")
             return None
         else:
-            return self.get_risk_measure(self.G_Q_inv)
+            return self.get_risk_measure(self.Gs_inv)
 
     def get_mean_std(self, G_inv):
 
@@ -132,14 +132,14 @@ class W_Stress:
         return mean, std
 
     def get_mean_std_baseline(self):
-        return self.get_mean_std(self.G_P_inv)
+        return self.get_mean_std(self.F_inv)
 
     def get_mean_std_stressed(self):
-        if self.G_Q_inv is None:
+        if self.Gs_inv is None:
             print("Stressed distribution does not exist.")
             return None
         else:
-            return self.get_mean_std(self.G_Q_inv)
+            return self.get_mean_std(self.Gs_inv)
 
     def get_hara_utility(self, a, b, eta, u, G_inv):
         return self.integrate((1 - eta) / eta * (a * G_inv / (1 - eta) + b) ** eta, u)
@@ -179,7 +179,7 @@ class W_Stress:
     # ell functions
     def ell_rm(self, lam):
         # ell = F_inv(u) + sum{lambda * gamma(u)}
-        ell = self.G_P_inv.copy()
+        ell = self.F_inv.copy()
 
         for i in range(len(self.gammas)):
             ell += lam[i] * self.gammas[i]
@@ -188,7 +188,7 @@ class W_Stress:
 
     def ell_mean_std(self, lam, m):
         # ell = 1/(1 + lambda2) * (F_inv(u) + lambda_1 + lambda_2 * m)
-        ell = (self.G_P_inv + lam[0] + lam[1] * m) / (1 + lam[1])
+        ell = (self.F_inv + lam[0] + lam[1] * m) / (1 + lam[1])
 
         return ell
 
@@ -214,12 +214,12 @@ class W_Stress:
 
         # Calculate the error for set of Lagrange multipliers lambda
         def constraint_error(lam):
-            # Get the stressed inverse distribution G_Q_inv
+            # Get the stressed inverse distribution Gs_inv
             ell = self.ell_rm(lam)
-            G_Q_inv = self.get_iso(ell)
+            Gs_inv = self.get_iso(ell)
 
             # Get stressed risk measure RM and calculate the error to minimize
-            RM = self.get_risk_measure(G_Q_inv)
+            RM = self.get_risk_measure(Gs_inv)
             RM_Error = np.sqrt(np.sum((rm - RM) ** 2) / len(self.gammas))
 
             return RM_Error
@@ -234,7 +234,7 @@ class W_Stress:
             lam = sol.x
 
             ell = self.ell_rm(lam)
-            self.G_Q_inv = self.get_iso(ell)
+            self.Gs_inv = self.get_iso(ell)
 
             if not (np.abs(rm - self.get_risk_measure_stressed()) > 1e-4).any():
                 search = False
@@ -255,8 +255,8 @@ class W_Stress:
         def constraint_error(lam):
 
             ell = self.ell_mean_std(lam, m)
-            G_Q_inv = self.get_iso(ell)
-            mean, std = self.get_mean_std(G_Q_inv)
+            Gs_inv = self.get_iso(ell)
+            mean, std = self.get_mean_std(Gs_inv)
             error = np.sqrt(2) * np.sqrt((mean - m) ** 2 + (std - s) ** 2)  # sqrt(2) normalization constant
 
             return error
@@ -271,7 +271,7 @@ class W_Stress:
             lam = sol.x
 
             ell = self.ell_mean_std(lam, m)
-            self.G_Q_inv = self.get_iso(ell)
+            self.Gs_inv = self.get_iso(ell)
 
             mean, std = self.get_mean_std_stressed()
 
@@ -297,13 +297,13 @@ class W_Stress:
             return
 
         def constraint_error(lam):
-            # Get the stressed inverse distribution G_Q_inv
+            # Get the stressed inverse distribution Gs_inv
             ell = self.ell_rm_mean_std(lam, m)
-            G_Q_inv = self.get_iso(ell)
+            Gs_inv = self.get_iso(ell)
 
             # Get stressed risk measure RM, mean and standard deviation and calculate the error to minimize
-            RM = self.get_risk_measure(G_Q_inv)
-            mean, std = self.get_mean_std(G_Q_inv)
+            RM = self.get_risk_measure(Gs_inv)
+            mean, std = self.get_mean_std(Gs_inv)
             error = np.sqrt(2*(mean - m) ** 2 + 2*(std - s) ** 2 + np.sum((rm - RM) ** 2) / len(self.gammas))
 
             return error
@@ -317,7 +317,7 @@ class W_Stress:
             lam = sol.x
 
             ell = self.ell_rm_mean_std(lam, m)
-            self.G_Q_inv = self.get_iso(ell)
+            self.Gs_inv = self.get_iso(ell)
 
             RM = self.get_risk_measure_stressed()
             mean, std = self.get_mean_std_stressed()
@@ -351,10 +351,10 @@ class W_Stress:
             ell = self.ell_rm(lam[1:])
             iso_g = self.get_iso(ell)
 
-            G_Q_inv = self.UTransform(a, b, eta, self.u, iso_g, np.exp(lam[0]))
+            Gs_inv = self.UTransform(a, b, eta, self.u, iso_g, np.exp(lam[0]))
 
-            RM = self.get_risk_measure(G_Q_inv)
-            Utility = self.get_hara_utility(a, b, eta, self.u, G_Q_inv)
+            RM = self.get_risk_measure(Gs_inv)
+            Utility = self.get_hara_utility(a, b, eta, self.u, Gs_inv)
 
             self.iter += 1
             if np.mod(self.iter, 50) == 0:
@@ -376,10 +376,10 @@ class W_Stress:
             ell = self.ell_rm(lam[1:])
             iso_g = self.get_iso(ell)
 
-            self.G_Q_inv = self.UTransform(a, b, eta, self.u, iso_g, np.exp(lam[0]))
+            self.Gs_inv = self.UTransform(a, b, eta, self.u, iso_g, np.exp(lam[0]))
 
             RM = self.get_risk_measure_stressed()
-            Utility = self.get_hara_utility(a, b, eta, self.u, self.G_Q_inv)
+            Utility = self.get_hara_utility(a, b, eta, self.u, self.Gs_inv)
 
             if not ((np.abs(RM - rm) > 1e-4).any() or (np.abs(Utility - c) > 1e-4)):
                 search = False
@@ -391,7 +391,7 @@ class W_Stress:
         print(" WD = ", self.wasserstein_distance(), end="\n")
         print(" RM, Utility = ", RM, Utility, end="\n")
         print(" Targets = ", rm, c, end="\n")
-        print(" Base = ", self.get_risk_measure_baseline(), self.get_hara_utility(a, b, eta, self.u, self.G_P_inv), end="\n")
+        print(" Base = ", self.get_risk_measure_baseline(), self.get_hara_utility(a, b, eta, self.u, self.F_inv), end="\n")
         print("\n")
 
         fig = self.plot_ell_iso(ell)
