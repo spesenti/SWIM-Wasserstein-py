@@ -49,7 +49,7 @@ def plot_dist(StressModel, filename, f, F, type="", title="", save=True, rm=None
     plt.plot(x_Q, gs, color='r', label='$g^*_Y$')
     plt.plot(y_P, f(y_P), '--', color='b', label='$f_Y$')
 
-    if type == "rm-mean-std" and rm is not None:
+    if rm is not None:
         colors = ["r", "b"]
         labels = ["$ES_{0.95}(G^*_Y)$", "$ES_{0.95}(F_Y)$"]
         for i in range(len(rm)):
@@ -179,12 +179,19 @@ if __name__ == "__main__":
     # -------------------- Test Mean and Variance Optimisation -------------------- #
     mean_P, std_P = StressModel.get_mean_std_baseline()
 
+    # Set gamma for ES
+    alpha = 0.95
+    gamma_ES = [lambda u: (u >= alpha) / (1 - alpha)]
+    StressModel.set_gamma(gamma_ES)
+
     lam, WD, mv_Q, fig = StressModel.optimise_mean_std(mean_P, 1.2 * std_P)
+    stressed_rm = StressModel.get_risk_measure_stressed()
+    baseline_rm = StressModel.get_risk_measure_baseline()
 
     filename = 'Plots/lognormal_M_S_20'
     fig.savefig(filename + '_inv.pdf', format='pdf')
 
-    plot_dist(StressModel, filename, f, F, "mean-std")
+    plot_dist(StressModel, filename, f, F, "mean-std", rm=[stressed_rm[0], baseline_rm[0]])
 
     # -------------------- Test mean-variance + ES measure -------------------- #
 
@@ -196,9 +203,13 @@ if __name__ == "__main__":
     RM_P = StressModel.get_risk_measure_baseline()
     mean_P, std_P = StressModel.get_mean_std_baseline()
 
-    rm_stresses = [10, 10, 0]
-    mean_stresses = [10, -10, 0]
-    std_stresses = [-10, 0, 20]
+    # rm_stresses = [10, 10, 0]
+    # mean_stresses = [10, -10, 0]
+    # std_stresses = [-10, 0, 20]
+
+    rm_stresses = [0]
+    mean_stresses = [0]
+    std_stresses = [20]
 
     # stresses = [-10, 0, 10]
     # for stress in itertools.product(stresses, repeat=3):
@@ -212,9 +223,10 @@ if __name__ == "__main__":
                                                               (1 + std_stress / 100) * std_P)
 
         filename = f'Plots/ES-mean-std/lognormal_alpha_{alpha}_ES_{rm_stress}_M_{mean_stress}_S_{std_stress}'
-        fig.savefig(filename + '_inv.pdf', format='pdf')
+        # fig.savefig(filename + '_inv.pdf', format='pdf')
 
-        plot_dist(StressModel, filename, f, F, "rm-mean-std", rm=[RM_Q[0], RM_P[0]])
+        plot_dist(StressModel, filename, f, F, "rm-mean-std", rm=[RM_Q[0], RM_P[0]], save=False)
+        print(StressModel.Gs_inv)
 
     # -------------------- Test Utility and risk measure -------------------- #
     hara = lambda a, b, eta, x: (1 - eta) / eta * (a * x / (1 - eta) + b) ** eta
