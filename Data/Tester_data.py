@@ -146,7 +146,7 @@ if __name__ == "__main__":
 
         lam, WD, RM_Q, fig = StressModel.optimise_rm(RM_P * np.array([1+es_stress[0]/100,
                                                                       1+es_stress[1]/100]))
-        filename = f'Plots/ES/data_ES0_{es_stress[0]}_ES95_{es_stress[1]}'
+        filename = f'Plots/1D/ES/data_ES0_{es_stress[0]}_ES95_{es_stress[1]}'
 
         fig.savefig(filename + '_inv.pdf', format='pdf')
         plot_dist(StressModel, filename, f, F, "ES", save=True)
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     mean_P, std_P = StressModel.get_mean_std(StressModel.F_inv)
     lam, WD, mv_Q, fig = StressModel.optimise_mean_std(mean_P, 1.2 * std_P)
 
-    filename = 'Plots/mean-std/data_M_S_20'
+    filename = 'Plots/1D/mean-std/data_M_S_20'
     fig.savefig(filename + '_inv.pdf',format='pdf')
 
     plot_dist(StressModel, filename, f, F, "meand-std")
@@ -173,7 +173,7 @@ if __name__ == "__main__":
 
     _, _, _, fig = StressModel.optimise_HARA(1, b(0.2), 0.2, Utility_P * 1, RM_P * np.array([1.0, 1.0]))
 
-    filename = 'Plots/HARA-ES/data_utility_rm_1_0_95_s5_downup'
+    filename = 'Plots/1D/HARA-ES/data_utility_rm_1_0_95_s5_downup'
     fig.savefig(filename + '_inv.pdf', format='pdf')
 
     plot_dist(StressModel, filename, f, F)
