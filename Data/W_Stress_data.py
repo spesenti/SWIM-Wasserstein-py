@@ -156,7 +156,10 @@ class W_Stress:
             return self.get_mean_std(self.Gs_inv)
 
     def get_hara_utility(self, a, b, eta, u, G_inv):
-        return self.integrate((1 - eta) / eta * (a * G_inv / (1 - eta) + b) ** eta, u)
+        # f = (1 - eta) / eta * (a * G_inv / (1 - eta) + b) ** eta
+        dummy = a * G_inv / (1 - eta) + b
+        f = (1 - eta) / eta * np.sign(dummy) * (np.abs(dummy)) ** eta
+        return self.integrate(f, u)
 
     def UTransform(self, a, b, eta, u, G_inv, lam):
 
@@ -169,9 +172,11 @@ class W_Stress:
 
         # Get g = nu_inv(.)
         for i in range(len(u)):
-            g[i] = optimize.root_scalar(lambda x: nu(x) - G_inv[i], method='bisect',
-                                        bracket=[-b * (1 - eta) / a + 1e-5, 100]).root
-
+            try:
+                g[i] = optimize.root_scalar(lambda x: nu(x) - G_inv[i], method='bisect',
+                                            bracket=[-b * (1 - eta) / a + 1e-5, 100]).root
+            except Exception as e:
+                print(e)
         return g
 
     # gamma functions
@@ -390,11 +395,11 @@ class W_Stress:
             RM = self.get_risk_measure(Gs_inv)
             Utility = self.get_hara_utility(a, b, eta, self.u, Gs_inv)
 
+            error = np.sqrt(np.mean((RM - rm) ** 2) + (Utility - c) ** 2)
+
             self.iter += 1
             if np.mod(self.iter, 50) == 0:
                 print(lam, RM, Utility)
-
-            error = np.sqrt(np.mean((RM - rm) ** 2) + (Utility - c) ** 2)
 
             return error
 
@@ -417,6 +422,12 @@ class W_Stress:
 
             if not ((np.abs(RM - rm) > 1e-4).any() or (np.abs(Utility - c) > 1e-4)):
                 search = False
+
+
+            if np.mod(self.iter, 50) == 0:
+                print("HI THERE IS THIS WORKING??")
+                print('risk measure:', np.min(np.abs(RM - rm)))
+                print('utility:', np.min(np.abs(Utility - c)))
 
         lam_actual = lam.copy()
         lam_actual[0] = np.exp(lam[0])
