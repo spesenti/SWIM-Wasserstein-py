@@ -41,6 +41,18 @@ def create_u_grid(pts):
     return u
 
 
+def get_bivariate_KDE(data):
+    # bivariate KDE for x1, x2
+    h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5) / 2  # Silverman's rule, divide by 2 added
+    h_x = 1.06 * np.std(data["x"], axis=0) * (len(data["y"])) ** (-1 / 5)
+
+    f = lambda y: np.sum(norm.pdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / h_y) / h_y / len(data["y"]),
+                         axis=1).reshape(-1)
+    F = lambda y: np.sum(norm.cdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / h_y) / len(data["y"]), axis=1).reshape(-1)
+
+    return h_y, h_x, f, F
+
+
 def f_x(x1, x2, h_x, x_data):
     f = np.zeros(x1.shape)
 
@@ -92,7 +104,7 @@ def plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, type="", title="",
     y_P = np.linspace(StressModel.Gs_inv[5], StressModel.Gs_inv[-5], 1000)
     y_Q = np.linspace(StressModel.Gs_inv[3], StressModel.Gs_inv[-3], 1000)
 
-    _, gs, Gs = StressModel.Distribution(StressModel.u, StressModel.Gs_inv, y_Q)
+    _, gs, Gs = StressModel.distribution(StressModel.u, StressModel.Gs_inv, y_Q)
 
     fig = plt.figure(figsize=(5, 4))
     plt.plot(y_Q, gs, color='r', label='$g^*_Y$')
@@ -169,8 +181,10 @@ def plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, type="", title="",
     plt.xlim(-1, 3)
     plt.ylim(-1, 3)
     plt.tight_layout()
-    # fig.savefig(filename + '_data_x_P.pdf',format='pdf')
     plt.show()
+
+    if save:
+        fig.savefig(filename + '_data_x_P.pdf',format='pdf')
 
     fig = plt.figure(figsize=(4, 4))
     f_x_plt_ctr = plt.contour(x1, x2, f_x_plt, alpha=0.4)
@@ -181,8 +195,42 @@ def plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, type="", title="",
     plt.xlabel(r"$x_1$", fontsize=18)
     plt.ylabel(r"$x_2$", fontsize=18)
     plt.tight_layout()
-    # fig.savefig(filename + '_data_x_Q.pdf',format='pdf')
     plt.show()
+
+    if save:
+        fig.savefig(filename + '_data_x_Q.pdf',format='pdf')
+
+    return
+
+
+def plot_joint(x, filename, save=True):
+    g = sns.jointplot(x=x[:, 0], y=x[:, 1], s=2)
+    g.plot_joint(sns.kdeplot, color="r", zorder=0, levels=6)
+    plt.xlim(-1, 4)
+    plt.ylim(-1, 4)
+    plt.xlabel(r"$x_1$", fontsize=18)
+    plt.ylabel(r"$x_2$", fontsize=18)
+    plt.tight_layout()
+
+    plt.show()
+
+    if save:
+        plt.savefig(filename + "_data_x.pdf", type="pdf")
+
+    return
+
+
+def plot_contour(x1, x2, f, filename, save=True):
+    plt.figure(figsize=(4, 4))
+    plt.contour(x1, x2, f_x(x1, x2, h_x, data["x"]))
+    plt.xlabel(r"$x_1$", fontsize=18)
+    plt.ylabel(r"$x_2$", fontsize=18)
+    plt.show()
+
+    if save:
+        plt.savefig(filename + "_contour.pdf", type="pdf")
+
+    return
 
 
 # -------------------- Basic Metrics -------------------- #
@@ -199,7 +247,7 @@ def metrics(data, w):
     mean_y_Q = np.sum(data["y"] * w, axis=0) / np.sum(w)
     std_y_Q = np.sqrt(np.sum((data["y"] - mean_y_Q) ** 2 * w, axis=0) / np.sum(w))
 
-    mean_x_Q = np.sum(data["x"] * np.matlib.repmat(w.reshape(-1, 1), 1, 2), axis=0) / np.sum(w)
+    mean_x_Q = np.sum(data["x"] * np.tile(w.reshape(-1, 1), (1, 2)), axis=0) / np.sum(w)
     cov_x_Q = np.zeros((2, 2))
     cov_x_Q[0, 0] = np.sum((data["x"][:, 0] - mean_x_Q[0]) ** 2 * w, axis=0) / np.sum(w)
     cov_x_Q[0, 1] = np.sum((data["x"][:, 0] - mean_x_Q[0]) * (data["x"][:, 1] - mean_x_Q[1]) * w, axis=0) / np.sum(w)
@@ -230,113 +278,84 @@ if __name__ == "__main__":
     params = {"H1": {"mu": np.array([0.5, 1]), "cov": np.array([[0.2, 0.1], [0.1, 0.4]])},
               "H2": {"mu": np.array([1, 0.5]), "cov": np.array([[0.6, -0.3], [-0.3, 0.3]])}}
 
-    lognormal = lambda x, mu, cov: np.exp(np.tile((mu - 0.5 * np.diag(cov)).reshape(1, -1), (Nsims, 1)) + x)
-
     n1 = np.random.multivariate_normal(mean=params["H1"]["mu"], cov=params["H1"]["cov"], size=Nsims)
-    l1 = lognormal(n1, params["H1"]["mu"], params["H1"]["cov"])
-
     n2 = np.random.multivariate_normal(mean=params["H2"]["mu"], cov=params["H2"]["cov"], size=Nsims)
-    l2 = lognormal(n2, params["H2"]["mu"], params["H2"]["cov"])
 
     x = np.tile((H == 0).reshape(-1, 1), (1, 2)) * n1 + np.tile((H == 1).reshape(-1, 1), (1, 2)) * n2
 
-    g = sns.jointplot(x=x[:, 0], y=x[:, 1], s=2)
-    g.plot_joint(sns.kdeplot, color="r", zorder=0, levels=6)
-    plt.xlim(-1, 4)
-    plt.ylim(-1, 4)
-    plt.xlabel(r"$x_1$", fontsize=18)
-    plt.ylabel(r"$x_2$", fontsize=18)
-    plt.tight_layout()
-    # plt.savefig("data_x.pdf", type="pdf")
+    filename = "Plots/Data-Generation/"
+    plot_joint(x, filename, save=False)
 
-    plt.show()
-
+    # Define the data and get the bandwidths, density and CDF
     data = {"y": 2 + np.exp(x[:, 0] + x[:, 1] - 3).reshape(-1), "x": x}
-
-    h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5) / 2  # Silverman's rule, divide by 2 added
-    h_x = 1.06 * np.std(data["x"], axis=0) * (len(data["y"])) ** (-1 / 5)
-
-    f = lambda y: np.sum(norm.pdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / h_y) / h_y / len(data["y"]),
-                         axis=1).reshape(-1)
-
-    F = lambda y: np.sum(norm.cdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / h_y) / len(data["y"]), axis=1).reshape(-1)
-
-    # bivariate KDE for x1, x2
-
-    phi = lambda z, z_data, h: norm.pdf((z.reshape(-1, 1) - z_data.reshape(1, -1)) / h) / h  # Relate to line 246?
+    h_y, h_x, f, F = get_bivariate_KDE(data)
 
     x1, x2 = np.meshgrid(np.linspace(-1, 4, 100), np.linspace(-1, 4, 100))
-    plt.figure(figsize=(4, 4))
-    plt.contour(x1, x2, f_x(x1, x2, h_x, data["x"]))
-    plt.xlabel(r"$x_1$", fontsize=18)
-    plt.ylabel(r"$x_2$", fontsize=18)
-    plt.show()
+    plot_contour(x1, x2, f_x(x1, x2, h_x, data["x"]), filename, save=False)
 
     # -------------------- ES_0 and ES_0.95 -------------------- #
-    # alpha = [0, 0.95]
-    #
-    # y = np.linspace(1e-20, 30, 1000)
-    # u = create_u_grid([0.95])
-    #
-    # gamma = [lambda u: (u > alpha[0]) / (1 - alpha[0]), lambda u: (u > alpha[1]) / (1 - alpha[1])]
-    #
-    # for i in range(len(gamma)):
-    #     plt.plot(u, gamma[i](u))
-    # plt.ylabel(r'$\gamma(u)$')
-    # plt.xlabel('u')
-    # plt.show()
-    #
-    # # -------------------- Generate the model -------------------- #
-    # StressModel = W_Stress(data, u, gamma)
-    #
-    # # -------------------- Optimize ES risk measure -------------------- #
-    # RM_P = StressModel.get_risk_measure_baseline()
-    # lam, WD, RM_Q, fig = StressModel.Optimise_RM(RM_P * np.array([1.05, 1.05]))
-    #
-    # filename = 'data_ES_0_u5_95_u5_v2'
-    #
-    # # fig.savefig(filename + '_inv.pdf',format='pdf')
-    #
-    # plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "ES")
-    #
-    # w = generate_weights(data, StressModel)
-    #
-    # P, Q = metrics(data, w)
-    #
-    # # %% Optimis RM
-    # lam, WD, RM_Q, fig = StressModel.Optimise_RM(RM_P * np.array([0.95, 1.05]))
-    #
-    # filename = 'data_ES_0_d5_95_u5p_v2'
-    #
-    # # fig.savefig(filename + '_inv.pdf',format='pdf')
-    #
-    # plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "ES")
-    #
-    # w = generate_weights(data, StressModel)
-    #
-    # P, Q = metrics(data, w)
+    alpha = [0, 0.95]
+    u = create_u_grid([0.95])
 
-    # # %% Test Mean and Variance Optimisation
-    # mean_P, std_P = StressModel.MeanStd(StressModel.F_inv)
-    # lam, WD, mv_Q, fig = StressModel.Optimise_MeanStd(mean_P, 1.2 * std_P)
-    #
-    # filename = 'data_MS_20'
-    # # fig.savefig(filename + '_inv.pdf',format='pdf')
-    #
-    # plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, 'mean-std')
-    #
-    # # %% Test Utility ******** NOT Converging ********
-    # hara = lambda a, b, eta, x: (1 - eta) / eta * (a * x / (1 - eta) + b) ** eta
-    #
-    # b = lambda eta: 5 * (eta / (1 - eta)) ** (1 / eta)
-    # plt.plot(y, hara(1, b(0.2), 0.2, y))
-    #
-    # RM_P = StressModel.RiskMeasure(StressModel.F_inv)
-    # Utility_P = StressModel.Utility(1, b(0.2), 0.2, StressModel.u, StressModel.F_inv)
-    #
-    # _, _, _, fig = StressModel.Optimise_HARA(1, b(0.2), 0.2, Utility_P * 1, RM_P * np.array([1.0, 1.0]))
-    #
-    # filename = 'data_utility_rm_1_0_95_s5_downup'
-    # # fig.savefig(filename + '_inv.pdf',format='pdf')
-    #
-    # plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, 'utility')
+    gamma = [lambda u: (u > alpha[0]) / (1 - alpha[0]), lambda u: (u > alpha[1]) / (1 - alpha[1])]
+
+    for i in range(len(gamma)):
+        plt.plot(u, gamma[i](u))
+    plt.ylabel(r'$\gamma(u)$')
+    plt.xlabel('u')
+    plt.show()
+
+    # -------------------- Generate the model -------------------- #
+    StressModel = W_Stress(data, u)
+
+    # -------------------- Optimize ES risk measure -------------------- #
+    StressModel.set_gamma(gamma)
+    RM_P = StressModel.get_risk_measure_baseline()
+    lam, WD, RM_Q, fig = StressModel.optimise_rm(RM_P * np.array([1.05, 1.05]))
+
+    filename = 'Plots/2D/ES/data_ES_0_u5_95_u5'
+    # fig.savefig(filename + '_inv.pdf',format='pdf')
+
+    plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "ES", save=False)
+
+    w = generate_weights(data, StressModel)
+    P, Q = metrics(data, w)
+
+    # -------------------- Optimize ES risk measure -------------------- #
+    lam, WD, RM_Q, fig = StressModel.optimise_rm(RM_P * np.array([0.95, 1.05]))
+
+    filename = 'Plots/2D/ES/data_ES_0_d5_95_u5'
+    # fig.savefig(filename + '_inv.pdf',format='pdf')
+
+    plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "ES", save=False)
+
+    w = generate_weights(data, StressModel)
+
+    P, Q = metrics(data, w)
+
+    # -------------------- Test Mean and Variance Optimisation -------------------- #
+    mean_P, std_P = StressModel.get_mean_std_baseline()
+    lam, WD, mv_Q, fig = StressModel.optimise_mean_std(mean_P, 1.2 * std_P)
+
+    filename = 'Plots/2D/mean-std/data_MS_20'
+    # fig.savefig(filename + '_inv.pdf',format='pdf')
+
+    plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, 'mean-std', save=False)
+
+    # -------------------- Test Utility and risk measure -------------------- #
+    # ******** NOT Converging ********
+    hara = lambda a, b, eta, x: (1 - eta) / eta * (a * x / (1 - eta) + b) ** eta
+
+    b = lambda eta: 5 * (eta / (1 - eta)) ** (1 / eta)
+    y = np.linspace(1e-20, 30, 1000)
+    plt.plot(y, hara(1, b(0.2), 0.2, y))
+
+    RM_P = StressModel.get_risk_measure_baseline()
+    Utility_P = StressModel.get_hara_utility(1, b(0.2), 0.2, StressModel.u, StressModel.F_inv)
+
+    _, _, _, fig = StressModel.optimise_HARA(1, b(0.2), 0.2, Utility_P * 1, RM_P * np.array([1.0, 1.0]))
+
+    filename = 'data_utility_rm_1_0_95_s5_downup'
+    # fig.savefig(filename + '_inv.pdf',format='pdf')
+
+    plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, 'utility', save=False)

@@ -53,22 +53,6 @@ class W_Stress:
         # integral of f over space x using Reimann sums
         return np.sum(0.5 * (f[:-1] + f[1:]) * np.diff(u))
 
-    @staticmethod
-    def distribution(u, G_inv, x):
-
-        print("using qtl derivative")
-
-        dG_inv = (G_inv[2:] - G_inv[:-2]) / (u[2:] - u[:-2])
-
-        dG_inv_interp = interpolate.interp1d(0.5 * (u[2:] + u[:-2]), dG_inv, kind='linear')
-
-        eps = np.cumsum(1e-10 * np.ones(len(G_inv)))
-        G_interp = interpolate.interp1d(eps + G_inv, u, kind='linear')
-
-        G = G_interp(x)
-        g = 1 / dG_inv_interp(G_interp(x))
-        return x, g, G
-
     # Plot functions
     def plot_ell_iso(self, ell, title=""):
 
@@ -232,6 +216,26 @@ class W_Stress:
 
     def get_iso(self, ell):
         return self.ir.fit_transform(self.u, ell)
+
+    # distribution
+    def distribution(self, u, G_inv, x):
+
+        print("using qtl derivative")
+
+        dG_inv = (G_inv[2:] - G_inv[:-2]) / (u[2:] - u[:-2])
+
+        dG_inv_interp = interpolate.interp1d(0.5 * (u[2:] + u[:-2]), dG_inv, kind='linear')
+
+        eps = np.cumsum(1e-10 * np.ones(len(G_inv)))
+        G_interp = interpolate.interp1d(eps + G_inv, u, kind='linear')
+
+        G = G_interp(x)
+        g = 1 / dG_inv_interp(G_interp(x))
+
+        self.Gs = G_interp
+        self.gs = lambda x: 1 / dG_inv_interp(G_interp(x))
+
+        return x, g, G
 
     # optimise functions
     def optimise_rm(self, rm, title=""):
