@@ -142,7 +142,9 @@ class W_Stress:
             return self.get_mean_std(self.Gs_inv)
 
     def get_hara_utility(self, a, b, eta, u, G_inv):
-        return self.integrate((1 - eta) / eta * (a * G_inv / (1 - eta) + b) ** eta, u)
+        dummy = a * G_inv / (1 - eta) + b
+        f = (1 - eta) / eta * np.sign(dummy) * np.abs(dummy) ** eta
+        return self.integrate(f, u)
 
     def UTransform(self, a, b, eta, u, G_inv, lam):
 
