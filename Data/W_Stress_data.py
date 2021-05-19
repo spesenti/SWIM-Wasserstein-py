@@ -54,6 +54,20 @@ class W_Stress:
         return np.sum(0.5 * (f[:-1] + f[1:]) * np.diff(u))
 
     # Plot functions
+    def plot_G_inv(self, G_inv, title=""):
+
+        fig = plt.figure(figsize=(4, 4))
+        plt.plot(self.u, G_inv, label=r"$\breve{G}^*_Y$", color='r')
+        plt.plot(self.u, self.F_inv, linestyle='--', color='b', label=r"$\breve{F}_Y$")
+        plt.title(title)
+        plt.legend(fontsize=14)
+
+        plt.yscale('log')
+
+        plt.show()
+
+        return
+
     def plot_ell_iso(self, ell, title=""):
 
         fig = plt.figure(figsize=(4, 4))
@@ -171,12 +185,21 @@ class W_Stress:
         nu = lambda x: x - lam * a * (a / (1 - eta) * x + b) ** (eta - 1)
 
         # Get g = nu_inv(.)
+        plot = False
+        last_g = 0
         for i in range(len(u)):
             try:
                 g[i] = optimize.root_scalar(lambda x: nu(x) - G_inv[i], method='bisect',
-                                            bracket=[-b * (1 - eta) / a + 1e-5, 100]).root
+                                            bracket=[-b * (1 - eta) / a + 1e-10, 100]).root
+                last_g = g[i]
             except Exception as e:
-                print(e)
+                g[i] = last_g
+                print(e, last_g)
+                # plot = True
+
+        if plot:
+            self.plot_G_inv(g)
+
         return g
 
     # gamma functions
@@ -229,10 +252,12 @@ class W_Stress:
 
         dG_inv = (G_inv[2:] - G_inv[:-2]) / (u[2:] - u[:-2])
 
-        dG_inv_interp = interpolate.interp1d(0.5 * (u[2:] + u[:-2]), dG_inv, kind='linear')
+        dG_inv_interp = interpolate.interp1d(0.5 * (u[2:] + u[:-2]), dG_inv, kind='linear', fill_value="extrapolate")
 
         eps = np.cumsum(1e-10 * np.ones(len(G_inv)))
-        G_interp = interpolate.interp1d(eps + G_inv, u, kind='linear')
+        x_coarse = eps + G_inv
+
+        G_interp = interpolate.interp1d(x_coarse, u, kind='linear', fill_value="extrapolate")
 
         G = G_interp(x)
         g = 1 / dG_inv_interp(G_interp(x))
@@ -422,12 +447,6 @@ class W_Stress:
 
             if not ((np.abs(RM - rm) > 1e-4).any() or (np.abs(Utility - c) > 1e-4)):
                 search = False
-
-
-            if np.mod(self.iter, 50) == 0:
-                print("HI THERE IS THIS WORKING??")
-                print('risk measure:', np.min(np.abs(RM - rm)))
-                print('utility:', np.min(np.abs(Utility - c)))
 
         lam_actual = lam.copy()
         lam_actual[0] = np.exp(lam[0])
