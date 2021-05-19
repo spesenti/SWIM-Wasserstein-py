@@ -94,44 +94,68 @@ def plot_dist(StressModel, filename, f, F, type="", title="", save=True):
 
 
 def plot_density(StressModels, filename, fs, title="", save=True):
-    fig = plt.figure(figsize=(5, 4))
+
     colors = [['r', 'black'], ['b', 'g']]
     labels = ['data', 'lognormal']
 
+    fig = plt.figure(figsize=(5, 4))
     for i in range(len(StressModels)):
         y_P = np.linspace(0.01, 10, 500)
         x_Q = np.linspace(StressModels[i].Gs_inv[3], StressModels[i].Gs_inv[-3], 1000)
         _, gs, Gs = StressModels[i].distribution(StressModels[i].u, StressModels[i].Gs_inv, x_Q)
 
         plt.plot(x_Q, gs, color=colors[0][i], label=f'$g^*_Y$_{labels[i]}')
+
+    plt.ylim(0, 0.6)
+    plt.xlim(0, 10)
+    plt.title(title)
+    plt.legend(fontsize=14)
+    plt.show()
+
+    if save:
+        fig.savefig(filename + '_density_g.pdf', format='pdf')
+
+    fig = plt.figure(figsize=(5, 4))
+    for i in range(len(StressModels)):
+        y_P = np.linspace(0.01, 10, 500)
+        x_Q = np.linspace(StressModels[i].Gs_inv[3], StressModels[i].Gs_inv[-3], 1000)
+        _, gs, Gs = StressModels[i].distribution(StressModels[i].u, StressModels[i].Gs_inv, x_Q)
+
         plt.plot(y_P, fs[i](y_P), '--', color=colors[1][i], label=f'$f_Y$_{labels[i]}')
 
     plt.ylim(0, 0.6)
     plt.xlim(0, 10)
     plt.title(title)
     plt.legend(fontsize=14)
-
     plt.show()
 
     if save:
-        fig.savefig(filename + '_density.pdf', format='pdf')
+        fig.savefig(filename + '_density_f.pdf', format='pdf')
+
     return
 
 def plot_inv(filename, dataModel, lognModel, title="", save=True):
     fig = plt.figure(figsize=(4, 4))
     plt.plot(u, dataModel.Gs_inv, label=r"$\breve{G}^*_Y$ data", color='r')
-    plt.plot(u, dataModel.F_inv, linestyle='--', color='b', label=r"$\breve{F}_Y$ data")
     plt.plot(u, lognModel.Gs_inv, label=r"$\breve{G}^*_Y$ lognormal", color='black')
+    plt.title(title)
+    plt.legend(fontsize=14)
+    plt.yscale('log')
+    plt.show()
+
+    if save:
+        fig.savefig(filename + '_quantiles_G.pdf', format='pdf')
+
+    fig = plt.figure(figsize=(4, 4))
+    plt.plot(u, dataModel.F_inv, linestyle='--', color='b', label=r"$\breve{F}_Y$ data")
     plt.plot(u, lognModel.F_inv, linestyle='--', color='g', label=r"$\breve{F}_Y$ lognormal")
     plt.title(title)
     plt.legend(fontsize=14)
-
     plt.yscale('log')
-
     plt.show()
-    if save:
-        fig.savefig(filename + '_quantiles.pdf', format='pdf')
 
+    if save:
+        fig.savefig(filename + '_quantiles_F.pdf', format='pdf')
     return
 
 
@@ -143,9 +167,7 @@ if __name__ == "__main__":
 
     # data params
     np.random.seed(0)
-    Nsims = 100
-    p_mix = 0.2
-    H = (np.random.uniform(size=Nsims) < p_mix)
+    Nsims = 500
     data = {"y": np.random.lognormal(mean=mu-0.5*sigma**2, sigma=sigma, size=Nsims)}
 
     h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5) / 2
@@ -170,6 +192,20 @@ if __name__ == "__main__":
     StressModelData = W_Stress_data(data, u)
     StressModelLogN = W_Stress_lognormal(y, F_lognormal, u)
 
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(5, 4))
+    ax2 = ax.twinx()
+
+    ax.hist(data["y"], bins=y, density=True)
+    ax2.plot(y, f_data(y), color='r')
+
+    ax.set_xlabel(r"$y$", fontsize=16)
+    ax.set_ylabel(r"frequency", fontsize=16)
+    ax2.set_ylabel(r"$f_Y$", fontsize=16, color='r')
+
+    plt.tight_layout(pad=1)
+
+    plt.show()
+
     # -------------------- Optimize alpha-beta risk measure -------------------- #
     p_list = [0.25, 0.5, 0.75]
     alpha = 0.9
@@ -190,8 +226,8 @@ if __name__ == "__main__":
         _, WD_logn, _, fig_logn = StressModelLogN.optimise_rm(RM_P_logn * np.array([1.1]), title=f"p={p}")
 
         filename = f'Plots/data_lognormal_alpha_{alpha}_beta_{beta}_p_{p}_s10'
-        plot_density([StressModelData, StressModelLogN], filename, [f_data, f_lognormal], title=f"p={p}", save=True)
-        plot_inv(filename, StressModelData, StressModelLogN, title=f"p={p}", save=True)
+        plot_density([StressModelData, StressModelLogN], filename, [f_data, f_lognormal], title=f"p={p}", save=False)
+        plot_inv(filename, StressModelData, StressModelLogN, title=f"p={p}", save=False)
 
     # -------------------- Test Mean and Variance Optimisation -------------------- #
     mean_P_data, std_P_data = StressModelData.get_mean_std_baseline()
@@ -221,7 +257,7 @@ if __name__ == "__main__":
     RM_P_logn = StressModelLogN.get_risk_measure_baseline()
     Utility_P_logn = StressModelLogN.get_hara_utility(1, b(0.2), 0.2, StressModelLogN.u, StressModelLogN.F_inv)
 
-    utility_stresses = [0]
+    utility_stresses = [0, 1, 3]
     rm_stresses = [-10, 10]
 
     for utility_stress in utility_stresses:
