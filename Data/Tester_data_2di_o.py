@@ -101,7 +101,7 @@ def generate_weights(data, StressModel):
 
 
 def plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, type="", title="", save=True):
-    y_P = np.linspace(StressModel.Gs_inv[5], StressModel.Gs_inv[-5], 1000)
+    y_P = np.linspace(StressModel.F_inv[5], StressModel.F_inv[-5], 1000)
     y_Q = np.linspace(StressModel.Gs_inv[3], StressModel.Gs_inv[-3], 1000)
 
     _, gs, Gs = StressModel.distribution(StressModel.u, StressModel.Gs_inv, y_Q)
@@ -111,6 +111,7 @@ def plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, type="", title="",
     plt.plot(y_P, f(y_P), '--', color='b', label='$f_Y$')
     plt.ylim(bottom=0)
     plt.xlim(1, 8)
+    plt.title(title)
     plt.show()
 
     if save:
@@ -295,15 +296,15 @@ if __name__ == "__main__":
 
     # -------------------- ES_0 and ES_0.95 -------------------- #
     alpha = [0, 0.95]
-    u = create_u_grid([0.95])
+    u = create_u_grid([0.005, 0.95])
 
     gamma = [lambda u: (u > alpha[0]) / (1 - alpha[0]), lambda u: (u > alpha[1]) / (1 - alpha[1])]
 
-    for i in range(len(gamma)):
-        plt.plot(u, gamma[i](u))
-    plt.ylabel(r'$\gamma(u)$')
-    plt.xlabel('u')
-    plt.show()
+    # for i in range(len(gamma)):
+    #     plt.plot(u, gamma[i](u))
+    # plt.ylabel(r'$\gamma(u)$')
+    # plt.xlabel('u')
+    # plt.show()
 
     # -------------------- Generate the model -------------------- #
     StressModel = W_Stress(data, u)
@@ -333,14 +334,70 @@ if __name__ == "__main__":
 
     P, Q = metrics(data, w)
 
+    # -------------------- Optimize alpha-beta risk measure -------------------- #
+    p_list = [0.25, 0.5, 0.75]
+    alpha = 0.9
+    beta = 0.1
+
+    for p in p_list:
+        alpha_beta_gamma = [lambda u: ((u < beta) * p + (u >= alpha) * (1 - p)) / (p * beta + (1 - p) * (1 - alpha))]
+
+        plt.plot(u, alpha_beta_gamma[0](u))
+        plt.ylabel(r'$\alpha_{0.9}-\beta_{0.1} \gamma(u)$')
+        plt.xlabel('u')
+        plt.show()
+
+        StressModel.set_gamma(alpha_beta_gamma)
+
+        # compute the baseline risk-measure of the base model
+        RM_P = StressModel.get_risk_measure_baseline()
+        lam, WD, RM_Q, fig = StressModel.optimise_rm(RM_P * np.array([1.1]), title=f"p={p}")
+
+        filename = f'Plots/2D/alpha-beta/data_alpha_{alpha}_beta_{beta}_p_{p}_10'
+        fig.savefig(filename + '_inv.pdf', format='pdf')
+
+        plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "ES", title=f"p={p}")
+
     # -------------------- Test Mean and Variance Optimisation -------------------- #
     mean_P, std_P = StressModel.get_mean_std_baseline()
-    lam, WD, mv_Q, fig = StressModel.optimise_mean_std(mean_P, 1.2 * std_P)
 
-    filename = 'Plots/2D/mean-std/data_MS_20'
-    # fig.savefig(filename + '_inv.pdf',format='pdf')
+    mean_stress = 20
+    std_stress = -20
+    lam, WD, mv_Q, fig = StressModel.optimise_mean_std((1 + mean_stress/100) * mean_P, (1 + std_stress/100) * std_P)
 
-    plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, 'mean-std', save=False)
+    filename = f'Plots/2D/mean-std/data_M{mean_stress}_S{std_stress}'
+    fig.savefig(filename + '_inv.pdf',format='pdf')
+
+    plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, 'mean-std', save=True)
+
+    # -------------------- Test mean-variance + ES measure -------------------- #
+    alpha = 0.95
+    gamma_ES = [lambda u: (u >= alpha) / (1 - alpha)]
+
+    StressModel.set_gamma(gamma_ES)
+
+    RM_P = StressModel.get_risk_measure_baseline()
+    mean_P, std_P = StressModel.get_mean_std_baseline()
+
+    rm_stresses = [10, 12, 15]
+    mean_stresses = [0, 0, 0]
+    std_stresses = [0, 0, 0]
+
+    # stresses = [-10, 0, 10]
+    # for stress in itertools.product(stresses, repeat=3):
+
+    for i in range(len(rm_stresses)):
+        rm_stress = rm_stresses[i]
+        mean_stress = mean_stresses[i]
+        std_stress = std_stresses[i]
+        _, _, RM_Q, _, fig = StressModel.optimise_rm_mean_std(np.array([1 + rm_stress / 100]) * RM_P,
+                                                              (1 + mean_stress / 100) * mean_P,
+                                                              (1 + std_stress / 100) * std_P)
+
+        filename = f'Plots/2D/ES-mean-std/data_alpha_{alpha}_ES_{rm_stress}_M_{mean_stress}_S_{std_stress}'
+        fig.savefig(filename + '_inv.pdf', format='pdf')
+
+        plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "rm-mean-std", save=True)
 
     # -------------------- Test Utility and risk measure -------------------- #
     # ******** NOT Converging ********
@@ -350,12 +407,23 @@ if __name__ == "__main__":
     y = np.linspace(1e-20, 30, 1000)
     plt.plot(y, hara(1, b(0.2), 0.2, y))
 
+    # Set gammas
+    alpha = [0.8, 0.95]
+    gammas = [lambda u: (u > alpha[0]) / (1 - alpha[0]), lambda u: (u > alpha[1]) / (1 - alpha[1])]
+    StressModel.set_gamma(gammas)
+
     RM_P = StressModel.get_risk_measure_baseline()
     Utility_P = StressModel.get_hara_utility(1, b(0.2), 0.2, StressModel.u, StressModel.F_inv)
 
-    _, _, _, fig = StressModel.optimise_HARA(1, b(0.2), 0.2, Utility_P * 1, RM_P * np.array([1.0, 1.0]))
+    utility_stresses = [0, 0.5, 1]
+    rm_stresses = [-3, 3]
 
-    filename = 'data_utility_rm_1_0_95_s5_downup'
-    # fig.savefig(filename + '_inv.pdf',format='pdf')
+    for utility_stress in utility_stresses:
+        _, _, _, fig = StressModel.optimise_HARA(1, b(0.2), 0.2, Utility_P * (1 + utility_stress / 100),
+                                                 RM_P * np.array([1 + rm_stresses[0] / 100, 1 + rm_stresses[1] / 100]))
 
-    plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, 'utility', save=False)
+        filename = f'Plots/2D/HARA-ES/data_utility_{utility_stress}_ES_{rm_stresses[0]}_{rm_stresses[1]}'
+        fig.savefig(filename + '_inv.pdf', format='pdf')
+
+        plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "Utility")
+

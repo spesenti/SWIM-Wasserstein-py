@@ -29,7 +29,7 @@ class W_Stress:
         y = np.linspace(0.9 * np.quantile(data["y"], 0.005), np.quantile(data["y"], 0.995) * 1.1, nY)
         self.y = y
 
-        h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5) / 2
+        h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5)
         self.f = lambda y: np.sum(norm.pdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / h_y) / h_y / len(data["y"]),
                                   axis=1).reshape(-1)
 
@@ -250,14 +250,29 @@ class W_Stress:
 
         print("using qtl derivative")
 
-        dG_inv = (G_inv[2:] - G_inv[:-2]) / (u[2:] - u[:-2])
-
-        dG_inv_interp = interpolate.interp1d(0.5 * (u[2:] + u[:-2]), dG_inv, kind='linear', fill_value="extrapolate")
-
         eps = np.cumsum(1e-10 * np.ones(len(G_inv)))
         x_coarse = eps + G_inv
 
-        G_interp = interpolate.interp1d(x_coarse, u, kind='linear', fill_value="extrapolate")
+        # print("G coarse | ", np.min(x_coarse), np.max(x_coarse))
+        # print("G fine | ", np.min(x), np.max(x))
+
+        if np.min(x_coarse) > np.min(x):
+            # Manually fix interpolation range
+            x_coarse[0] = np.min(x)
+
+        G_interp = interpolate.interp1d(x_coarse, u, kind='linear')
+
+        # print("G_inv coarse | ", np.min(0.5 * (u[2:] + u[:-2])), np.max(0.5 * (u[2:] + u[:-2])))
+        # print("G_inv fine | ", np.min(G_interp(x)), np.max(G_interp(x)))
+
+        x_inv_coarse = 0.5 * (u[2:] + u[:-2])
+        if np.min(np.min(x_inv_coarse) > np.min(G_interp(x))):
+            # Manually fix interpolation range
+            x_inv_coarse[0] = np.min(G_interp(x))
+
+
+        dG_inv = (G_inv[2:] - G_inv[:-2]) / (u[2:] - u[:-2])
+        dG_inv_interp = interpolate.interp1d(x_inv_coarse, dG_inv, kind='linear')
 
         G = G_interp(x)
         g = 1 / dG_inv_interp(G_interp(x))
@@ -360,6 +375,7 @@ class W_Stress:
             print("Please set gamma functions before calling optimise.")
             return
 
+        self.iter = 0
         def constraint_error(lam):
             # Get the stressed inverse distribution Gs_inv
             ell = self.ell_rm_mean_std(lam, m)
@@ -368,6 +384,9 @@ class W_Stress:
             # Get stressed risk measure RM, mean and standard deviation and calculate the error to minimize
             RM = self.get_risk_measure(Gs_inv)
             mean, std = self.get_mean_std(Gs_inv)
+
+            self.iter += 1
+
             error = np.sqrt(2*(mean - m) ** 2 + 2*(std - s) ** 2 + np.sum((rm - RM) ** 2) / len(self.gammas))
 
             return error
@@ -385,6 +404,11 @@ class W_Stress:
 
             RM = self.get_risk_measure_stressed()
             mean, std = self.get_mean_std_stressed()
+
+            if self.iter > 1000 * 50:
+                # manually terminate search
+                search = False
+                print("Search incomplete. Terminating ... ")
 
             if not (np.abs(mean - m) > 1e-4 or np.abs(std - s) > 1e-4 or (np.abs(RM - rm) > 1e-4).any()):
                 search = False
@@ -423,7 +447,7 @@ class W_Stress:
             error = np.sqrt(np.mean((RM - rm) ** 2) + (Utility - c) ** 2)
 
             self.iter += 1
-            if np.mod(self.iter, 50) == 0:
+            if np.mod(self.iter, 1000) == 0:
                 print(lam, RM, Utility)
 
             return error
@@ -444,6 +468,11 @@ class W_Stress:
 
             RM = self.get_risk_measure_stressed()
             Utility = self.get_hara_utility(a, b, eta, self.u, self.Gs_inv)
+
+            if self.iter > 100 * 50:
+                # manually terminate search
+                search = False
+                print("Search incomplete. Terminating ... ")
 
             if not ((np.abs(RM - rm) > 1e-4).any() or (np.abs(Utility - c) > 1e-4)):
                 search = False
