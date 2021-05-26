@@ -291,6 +291,7 @@ class W_Stress:
             print("Please set gamma functions before calling optimise.")
             return
 
+        self.iter = 0
         # Calculate the error for set of Lagrange multipliers lambda
         def constraint_error(lam):
             # Get the stressed inverse distribution Gs_inv
@@ -315,6 +316,11 @@ class W_Stress:
             ell = self.ell_rm(lam)
             self.Gs_inv = self.get_iso(ell)
 
+            if self.iter > 1000 * 50:
+                # manually terminate search
+                search = False
+                print("WARNING: Search incomplete. Terminating ... ")
+
             if not (np.abs(rm - self.get_risk_measure_stressed()) > 1e-4).any():
                 search = False
 
@@ -331,6 +337,7 @@ class W_Stress:
 
     def optimise_mean_std(self, m, s, title=""):
 
+        self.iter = 0
         def constraint_error(lam):
 
             ell = self.ell_mean_std(lam, m)
@@ -353,6 +360,11 @@ class W_Stress:
             self.Gs_inv = self.get_iso(ell)
 
             mean, std = self.get_mean_std_stressed()
+
+            if self.iter > 1000 * 50:
+                # manually terminate search
+                search = False
+                print("WARNING: Search incomplete. Terminating ... ")
 
             if not (np.abs(mean - m) > 1e-4 or np.abs(std - s) > 1e-4):
                 search = False
@@ -408,7 +420,7 @@ class W_Stress:
             if self.iter > 1000 * 50:
                 # manually terminate search
                 search = False
-                print("Search incomplete. Terminating ... ")
+                print("WARNING: Search incomplete. Terminating ... ")
 
             if not (np.abs(mean - m) > 1e-4 or np.abs(std - s) > 1e-4 or (np.abs(RM - rm) > 1e-4).any()):
                 search = False
@@ -472,7 +484,7 @@ class W_Stress:
             if self.iter > 100 * 50:
                 # manually terminate search
                 search = False
-                print("Search incomplete. Terminating ... ")
+                print("WARNING: Search incomplete. Terminating ... ")
 
             if not ((np.abs(RM - rm) > 1e-4).any() or (np.abs(Utility - c) > 1e-4)):
                 search = False
