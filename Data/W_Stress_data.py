@@ -19,8 +19,7 @@ import matplotlib.pyplot as plt
 
 class W_Stress:
 
-    def __init__(self, data, u):
-
+    def __init__(self, data, u, bracket=None):
         self.ir = IsotonicRegression()
         self.data = data
         self.u = u
@@ -36,8 +35,10 @@ class W_Stress:
         self.F = lambda y: np.sum(norm.cdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / h_y) / len(data["y"]),
                                   axis=1).reshape(-1)
 
+        if not bracket:
+            bracket = [-10, 20]
         F_inv = lambda u: optimize.root_scalar(lambda y: (self.F(np.array([y])) - u), method='Brentq',
-                                               bracket=[-10, 20])
+                                               bracket=bracket)
 
         self.F_inv = np.zeros(len(u))
         for i in range(len(u)):
@@ -93,7 +94,7 @@ class W_Stress:
 
         plt.subplot(2, 1, 2)
         plt.plot(self.u, ell, linewidth=0.5, color='g', label=r"$\ell$")
-        plt.plot(self.u, self.Gs_inv, label=r"$\breve{G}^*_Y$", color='r')
+        plt.plot(self.u, self.Gs_inv, linestyle='--', label=r"$\breve{G}^*_Y$", color='r')
         plt.legend(fontsize=14)
         plt.yscale('log')
 
@@ -194,11 +195,13 @@ class W_Stress:
                 last_g = g[i]
             except Exception as e:
                 g[i] = last_g
-                print(e, last_g)
-                # plot = True
+                exception = True
 
-        if plot:
-            self.plot_G_inv(g)
+        if exception:
+            # self.plot_G_inv(g)
+            x = np.linspace(-b * (1 - eta) / a + 1e-10, 100, 1000)
+            plt.plot(x, nu(x))
+            plt.show()
 
         return g
 
@@ -332,7 +335,7 @@ class W_Stress:
         print("\n")
 
         fig = self.plot_ell_iso(ell, title)
-
+        fig = self.plot_ell(ell)
         return lam, self.wasserstein_distance(), self.get_risk_measure_stressed(), fig
 
     def optimise_mean_std(self, m, s, title=""):
@@ -500,4 +503,5 @@ class W_Stress:
         print("\n")
 
         fig = self.plot_ell_iso(ell)
+
         return lam_actual, self.wasserstein_distance(), [RM, Utility], fig
