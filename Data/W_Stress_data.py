@@ -28,11 +28,11 @@ class W_Stress:
         y = np.linspace(0.9 * np.quantile(data["y"], 0.005), np.quantile(data["y"], 0.995) * 1.1, nY)
         self.y = y
 
-        h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5)
-        self.f = lambda y: np.sum(norm.pdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / h_y) / h_y / len(data["y"]),
-                                  axis=1).reshape(-1)
+        self.h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5)
+        self.f = lambda y: np.sum(norm.pdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / self.h_y) /
+                                  self.h_y / len(data["y"]), axis=1).reshape(-1)
 
-        self.F = lambda y: np.sum(norm.cdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / h_y) / len(data["y"]),
+        self.F = lambda y: np.sum(norm.cdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / self.h_y) / len(data["y"]),
                                   axis=1).reshape(-1)
 
         if not bracket:
@@ -128,6 +128,69 @@ class W_Stress:
         # Calculate the Wasserstein distance W2(G, F)
         return np.sqrt(self.integrate((self.Gs_inv - self.F_inv) ** 2, self.u))
 
+    def reverse_sensitivity_measure(self, s):
+        """
+        :param s: lambda function s:R -> R
+        :return: array of reverse sensitivity measures
+        """
+
+        if self.Gs_inv is None:
+            print("No stressed model defined. Please run an optimization before proceeding.")
+            return None
+
+        x = self.data['x']
+        w = self.get_weights()
+
+        num_inputs = x.shape[1]
+        N = x.shape[0]
+        S = np.zeros(num_inputs)
+        for i in range(num_inputs):
+            EQ_sX = np.sum(np.multiply(s(x[:,i]) , w)) / N # Q: should this be np.sum(w) insteado of N?
+            EP_sX = np.mean(s(x[:,i]))
+
+            xi_inc = np.sort(x[:, i])
+            if EQ_sX >= EP_sX:
+                plt.scatter(x[:, i], w, marker='.', color='green')
+
+                w_inc = np.sort(w)
+                plt.plot(xi_inc, w_inc, color='red')
+                plt.show()
+                max_EQ = np.mean(np.multiply(s(xi_inc), w_inc))
+                S[i] = (EQ_sX - EP_sX)/(max_EQ - EP_sX)
+
+            else:
+                w_dec = np.sort(w)[::-1]
+                min_EQ = np.mean(np.multiply(s(xi_inc), w_dec))
+                S[i] = -(EQ_sX - EP_sX) / (min_EQ - EP_sX)
+
+        return S
+
+    def get_weights(self):
+        # Get smoother results, dependent on KDE approximation
+        y_gd = np.linspace(self.Gs_inv[3], self.Gs_inv[-3], 500)
+
+        # Get gs, f
+        _, _, _ = self.distribution(self.u, self.Gs_inv, y_gd)
+
+        print("computing gs at grid points...")
+        gs = self.gs(y_gd)
+        gs /= self.integrate(gs, y_gd)
+
+        print("computing f at grid points...")
+        f = self.f(y_gd)
+        f /= self.integrate(f, y_gd)
+
+        dQ_dP = gs / f
+
+        print("E[dQ/dP]", self.integrate(dQ_dP * f, y_gd))
+
+        print("computing weights...")
+        w = np.zeros(len(self.data["y"]))
+        for i in range(len(self.data["y"])):
+            w[i] = self.integrate(norm.pdf((y_gd - self.data["y"][i]) / self.h_y) / self.h_y * dQ_dP, y_gd)
+
+        return w
+
     def get_risk_measure(self, G_inv):
         # Calculate risk measure rho = int {G_inv * gamma} du for each gamma
         if not self.gammas:
@@ -188,20 +251,23 @@ class W_Stress:
         # Get g = nu_inv(.)
         plot = False
         last_g = 0
+        exception = False
         for i in range(len(u)):
             try:
                 g[i] = optimize.root_scalar(lambda x: nu(x) - G_inv[i], method='bisect',
-                                            bracket=[-b * (1 - eta) / a + 1e-10, 100]).root
+                                            bracket=[-b * (1 - eta) / a + 1e-10, 500]).root
                 last_g = g[i]
             except Exception as e:
                 g[i] = last_g
                 exception = True
 
         if exception:
-            # self.plot_G_inv(g)
-            x = np.linspace(-b * (1 - eta) / a + 1e-10, 100, 1000)
-            plt.plot(x, nu(x))
-            plt.show()
+            print("Exception found at", last_g)
+            # self.plot_G_inv(G_inv)
+            # x = np.linspace(-b * (1 - eta) / a + 1e-10, 100, 1000)
+            # plt.plot(x, nu(x))
+            # plt.yscale('log')
+            # plt.show()
 
         return g
 
@@ -484,7 +550,7 @@ class W_Stress:
             RM = self.get_risk_measure_stressed()
             Utility = self.get_hara_utility(a, b, eta, self.u, self.Gs_inv)
 
-            if self.iter > 100 * 50:
+            if self.iter > 1000 * 15:
                 # manually terminate search
                 search = False
                 print("WARNING: Search incomplete. Terminating ... ")
