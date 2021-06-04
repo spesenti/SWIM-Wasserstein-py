@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm, gamma
 import seaborn as sns
+import itertools
+import pandas as pd
 
 from W_Stress_data import W_Stress
 
@@ -39,7 +41,7 @@ def create_u_grid(pts):
     return u
 
 
-def get_bivariate_KDE(data):
+def get_KDE(data):
     # bivariate KDE for x1, x2
     h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5)  # Silverman's rule
     h_x = 1.06 * np.std(data["x"], axis=0) * (len(data["y"])) ** (-1 / 5)
@@ -71,162 +73,6 @@ def gs_x(x1, x2, h_x, w, x_data):
     gs /= np.sum(w)
 
     return gs
-
-
-def generate_weights(data, h_y, StressModel):
-    # Get smoother results, dependent on KDE approximation
-    y_gd = np.linspace(StressModel.Gs_inv[3], StressModel.Gs_inv[-3], 500)
-
-    print("computing gs at grid points...")
-    gs = StressModel.gs(y_gd)
-    gs /= integrate(gs, y_gd)
-
-    print("computing f at grid points...")
-    f = StressModel.f(y_gd)
-    f /= integrate(f, y_gd)
-
-    dQ_dP = gs / f
-
-    print("E[dQ/dP]", integrate(dQ_dP * f, y_gd))
-
-    print("computing weights...")
-    w = np.zeros(len(data["y"]))
-    for i in range(len(data["y"])):
-        w[i] = integrate(norm.pdf((y_gd - data["y"][i]) / h_y) / h_y * dQ_dP, y_gd)
-        # print( i, " of ", len(data["y"]))
-
-    return w
-
-
-def plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, type="", title="", save=True):
-    y_P = np.linspace(StressModel.F_inv[5], StressModel.F_inv[-5], 1000)
-    y_Q = np.linspace(StressModel.Gs_inv[3], StressModel.Gs_inv[-3], 1000)
-
-    _, gs, Gs = StressModel.distribution(StressModel.u, StressModel.Gs_inv, y_Q)
-
-    fig = plt.figure(figsize=(5, 4))
-    plt.plot(y_Q, gs, color='r', label='$g^*_Y$')
-    plt.plot(y_P, f(y_P), '--', color='b', label='$f_Y$')
-    plt.ylim(bottom=0)
-    plt.title(title)
-    plt.show()
-
-    if save:
-        fig.savefig(filename + '_density.pdf', format='pdf')
-
-    fig = plt.figure(figsize=(5, 4))
-    plt.plot(y_Q, Gs, color='r', label='$G^*_Y$')
-    plt.plot(y_P, F(y_P), '--', color='b', label='$F_Y$')
-    plt.legend(fontsize=14)
-    plt.title(title)
-    plt.show()
-
-    if save:
-        fig.savefig(filename + '_CDF.pdf', format='pdf')
-
-    idx = np.where(np.diff(StressModel.Gs_inv) < 1e-8)[0][0]
-
-    fig = plt.figure(figsize=(4, 4))
-
-    dQ_dP = gs / f(y_Q)
-    if type == "ES":
-        dQ_dP[:idx] = 1
-    plt.plot(y_Q, dQ_dP)
-
-    plt.ylim(0, 15)
-    plt.xlabel(r"$y$", fontsize=18)
-    plt.ylabel(r"$\frac{g^{*}_Y}{f_Y}$", fontsize=22)
-    plt.tight_layout()
-    plt.show()
-
-    if save:
-        fig.savefig(filename + '_RN.pdf', format='pdf')
-
-    # # Get index for x- and y-values
-    # idx = (data["y"] >= y_Q[0]) & (data["y"] <= y_Q[-1])
-    # data_y_idx = data["y"][idx]
-    # data_x_idx = data["x"][idx]
-    #
-    # Get g*/f
-    # w = StressModel.gs(data_y_idx) / StressModel.f(data_y_idx)
-    #
-    # f_x_plt = f_x(x1, x2, h_x, data_x_idx)
-    # gs_x_plt = gs_x(x1, x2, h_x, w, data_x_idx)
-    #
-    # plt.figure(figsize=(8, 4))
-    #
-    # plt.subplot(1, 2, 1)
-    # plt.contour(x1, x2, f_x_plt)
-    # plt.xlabel(r"$x_1$", fontsize=18)
-    # plt.ylabel(r"$x_2$", fontsize=18)
-    #
-    # plt.subplot(1, 2, 2)
-    # plt.contour(x1, x2, gs_x_plt)
-    # plt.xlabel(r"$x_1$", fontsize=18)
-    # plt.ylabel(r"$x_2$", fontsize=18)
-    #
-    # plt.tight_layout()
-    # plt.show()
-    #
-    # fig = plt.figure(figsize=(4, 4))
-    # f_x_plt_ctr = plt.contour(x1, x2, f_x_plt, alpha=0.8)
-    # plt.scatter(data_x_idx[:, 0], data_x_idx[:, 1], color='r', s=0.1)
-    # plt.xlabel(r"$x_1$", fontsize=18)
-    # plt.ylabel(r"$x_2$", fontsize=18)
-    # plt.xlim(-1, 3)
-    # plt.ylim(-1, 3)
-    # plt.tight_layout()
-    # plt.show()
-    #
-    # if save:
-    #     fig.savefig(filename + '_data_x_P.pdf',format='pdf')
-    #
-    # fig = plt.figure(figsize=(4, 4))
-    # f_x_plt_ctr = plt.contour(x1, x2, f_x_plt, alpha=0.4)
-    # gs_x_plt_ctr = plt.contour(x1, x2, gs_x_plt, levels=f_x_plt_ctr.levels)
-    # plt.scatter(data_x_idx[:, 0], data_x_idx[:, 1], color='r', s=0.1)
-    # plt.xlim(-1, 3)
-    # plt.ylim(-1, 3)
-    # plt.xlabel(r"$x_1$", fontsize=18)
-    # plt.ylabel(r"$x_2$", fontsize=18)
-    # plt.tight_layout()
-    # plt.show()
-    #
-    # if save:
-    #     fig.savefig(filename + '_data_x_Q.pdf',format='pdf')
-
-    return
-
-
-def plot_joint(x, filename, save=True):
-    g = sns.jointplot(x=x[:, 0], y=x[:, 1], s=2)
-    g.plot_joint(sns.kdeplot, color="r", zorder=0, levels=6)
-    plt.xlim(-1, 4)
-    plt.ylim(-1, 4)
-    plt.xlabel(r"$x_1$", fontsize=18)
-    plt.ylabel(r"$x_2$", fontsize=18)
-    plt.tight_layout()
-
-    plt.show()
-
-    if save:
-        plt.savefig(filename + "_data_x.pdf", type="pdf")
-
-    return
-
-
-def plot_contour(x1, x2, f, filename, save=True):
-    plt.figure(figsize=(4, 4))
-    plt.contour(x1, x2, f)
-    plt.xlabel(r"$x_1$", fontsize=18)
-    plt.ylabel(r"$x_2$", fontsize=18)
-    plt.show()
-
-    if save:
-        plt.savefig(filename + "_contour.pdf", type="pdf")
-
-    return
-
 
 # -------------------- Basic Metrics -------------------- #
 def metrics(data, w):
@@ -263,188 +109,260 @@ def metrics(data, w):
     return P, Q
 
 
-if __name__ == "__main__":
-    # -------------------- Generate data -------------------- #
-    np.random.seed(1)
-    Nsims = 1000
+def generate_data(Nsims, plot=True):
 
     # Get z1, ... , z10 where zi = (zi(1), zi(2)) and zi(1), zi(2) ~ U(0,1)
     z1 = np.random.uniform(size=10)
     z2 = np.random.uniform(size=10)
     z = list(zip(z1, z2))
 
-    plt.plot(z1, z2, 'o', color='black')
-    plt.show()
-
     # Get theta in (0, 0.1, 0.4) with probabilities (0.05, 0.6, 0.35)
-    dummy = np.random.uniform()
-    if dummy <= 0.05:
-        theta = 0
-    elif dummy <= 0.65:
-        theta = 0.1
-    else:
-        theta = 0.4
+    x = np.random.uniform(0, 1, size=Nsims)
+    thetas = np.zeros(Nsims)
 
-    # Get the correlation
-    # rho_ij = exp{-theta * ||zi - zj||} where ||.|| denotes the Euclidean distance
-    Omega = np.zeros((10, 10))
-    for i in range(10):
+    thetas[np.where(x <= 0.05)] = 0
+    thetas[np.where((0.05 < x) & (x <= 0.65))] = 0.4
+    thetas[np.where(x > 0.65)] = 5
+
+    # Generate realizations of (L1, ..., L10) using Gaussian copulas
+    x = np.zeros((Nsims, 10))
+    theta_labels = {5:[], 0.4:[], 0: []}
+    for i in range(Nsims):
+        theta = thetas[i]
+        # Get the correlation
+        # rho_ij = exp{-theta_i * ||zi - zj||} where ||.|| denotes the Euclidean distance
+        Omega = np.zeros((10, 10))
         for j in range(10):
-            Omega[i, j] = np.exp(-theta*np.linalg.norm(np.array(z[i]) - np.array(z[j])))
-            Omega[j, i] = Omega[i, j]
+            for k in range(10):
+                Omega[j, k] = np.exp(-theta * np.linalg.norm(np.array(z[j]) - np.array(z[k])))
 
-    # Generate (L1, ..., L10) using Gaussian copulas
-    # Create samples from a correlated multivariate normal
-    x = np.random.multivariate_normal(mean=np.zeros(10), cov=Omega, size=Nsims)
+        # Create samples from a correlated multivariate normal
+        x0 = np.random.multivariate_normal(mean=np.zeros(10), cov=Omega)
+        x[i, :] = x0
+        theta_labels[theta].append(i)
 
     # Get uniform marginals
     u = norm.cdf(x)
 
     # Marginal distributions Li ~ Gamma(5, 0.2i) with mean=25
     L = np.zeros((Nsims, 10))
+    x_axis = np.linspace(25, 50, 200)
+    means = np.zeros(10)
     for i in range(10):
         L_i = gamma.ppf(u[:, i], a=5, loc=25, scale=0.2*(i+1))
         L[:, i] = L_i
 
+        means[i] = np.mean(L_i)
+
+        # Gamma distribution plot
+        if plot:
+            y_i = gamma.pdf(x_axis, a=5, loc=25, scale=0.2*(i+1))
+            plt.plot(x_axis, y_i, label=f"scale={0.2*(i+1)}")
+    if plot:
+        plt.legend()
+        plt.show()
+
+    max_mean = np.max(means)
+    min_mean = np.min(means)
+    marker_sizes = (means - min_mean)/(max_mean - min_mean)*150
+
+    # Location plot
+    if plot:
+        plt.scatter(z1, z2, marker='o', color='black', s=marker_sizes)
+        plt.show()
+
     # Define the data and get the bandwidths, density and CDF
     data = {"y": np.sum(L, axis=1), "x": L}
-    h_y, h_x, f, F = get_bivariate_KDE(data)
 
+    return data, theta_labels
+
+
+if __name__ == "__main__":
+    # -------------------- Generate data -------------------- #
+    np.random.seed(1)
+    data, theta_labels = generate_data(1000, plot=False)
+
+    h_y, h_x, f, F = get_KDE(data)
     x1, x2 = np.meshgrid(np.linspace(-1, 4, 100), np.linspace(-1, 4, 100))
 
-    x = np.linspace(-1, 4, 100)
-    fig, ax = plt.subplots()
-    ax2 = ax.twinx()
-
-    y = np.linspace(0.9 * np.quantile(data["y"], 0.005), np.quantile(data["y"], 0.995) * 1.1, 500)
-    ax.plot(y, f(y), color='k')
-    ax2.plot(y, F(y), color='r')
-
-    ax.set_xlabel(r"$y$", fontsize=16)
-    ax.set_ylabel(r"$f(y)$", fontsize=16)
-    ax2.set_ylabel(r"$F(y)$", fontsize=16, color='r')
-    ax.set_ylim(0, 0.02)
-    ax2.set_ylim(0, 1.02)
-
-    plt.tight_layout(pad=1)
-
-    plt.show()
+    ## -------------------- Visualize data -------------------- #
+    # colors = {0: 'black', 0.4: 'red', 5:'green'}
+    # filename = 'Plots/ex/theta/'
+    #
+    # # Pair-wise scatterplot
+    # df_L = pd.DataFrame(data['x'])
+    # df_L['theta'] = np.nan
+    # for label in [0, 0.4, 5]:
+    #     df_L.iloc[theta_labels[label], 10] = str(label)
+    # pp = sns.pairplot(df_L, hue='theta', plot_kws={"s": 3})
+    # plt.savefig(filename + 'pairwise_plt.pdf', format='pdf')
+    # plt.show()
+    #
+    # # Individual plots
+    # for pair in list(itertools.combinations(range(10), 2)):
+    #     for theta in theta_labels.keys():
+    #         row_idx = theta_labels[theta]
+    #         plt.scatter(data['x'][row_idx, pair[0]], data['x'][row_idx, pair[1]], color=colors[theta],
+    #                     s=8, label=f"$\Theta={theta}$")
+    #     plt.xlabel(f"$L_{pair[0]+1}$")
+    #     plt.ylabel(f"$L_{pair[1]+1}$")
+    #     plt.legend()
+    #     plt.savefig(filename + f'individual_{pair[0]+1}_{pair[1]+1}.pdf', format='pdf')
+    #     plt.show()
+    #
+    # plt.scatter(data['x'][:, 9], data['y'])
+    # plt.xlabel("$L_{10}$")
+    # plt.ylabel(f"$Y$")
+    # plt.legend()
+    # plt.show()
 
     # -------------------- Generate the model -------------------- #
     u = create_u_grid([0.005, 0.95])
     StressModel = W_Stress(data, u, [200, 450])
+    sensitivity_measures = []
+    labels = []
+    colors = []
+    # StressModel.plot_f_F()
 
-    # -------------------- Optimize ES risk measure -------------------- #
-    alpha = [0, 0.95]
-    gamma = [lambda u: (u > alpha[0]) / (1 - alpha[0]), lambda u: (u > alpha[1]) / (1 - alpha[1])]
-
-    StressModel.set_gamma(gamma)
-    RM_P = StressModel.get_risk_measure_baseline()
-    lam, WD, RM_Q, fig = StressModel.optimise_rm(RM_P * np.array([1.05, 1.05]))
-
-    filename = 'Plots/ex/ES/data_ES_0_u5_95_u5'
-    # fig.savefig(filename + '_inv.pdf',format='pdf')
-
-    plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "ES", save=False)
-
-    # -------------------- Optimize ES risk measure -------------------- #
-    lam, WD, RM_Q, fig = StressModel.optimise_rm(RM_P * np.array([0.95, 1.05]))
-
-    filename = 'Plots/ex/ES/data_ES_0_d5_95_u5'
-    # fig.savefig(filename + '_inv.pdf',format='pdf')
-
-    plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "ES", save=False)
-
-    # -------------------- Optimize alpha-beta risk measure -------------------- #
-    p_list = [0.25, 0.5, 0.75]
-    alpha = 0.9
-    beta = 0.1
-
-    for p in p_list:
-        alpha_beta_gamma = [lambda u: ((u < beta) * p + (u >= alpha) * (1 - p)) / (p * beta + (1 - p) * (1 - alpha))]
-
-        plt.plot(u, alpha_beta_gamma[0](u))
-        plt.ylabel(r'$\alpha_{0.9}-\beta_{0.1} \gamma(u)$')
-        plt.xlabel('u')
-        plt.show()
-
-        StressModel.set_gamma(alpha_beta_gamma)
-
-        # compute the baseline risk-measure of the base model
-        RM_P = StressModel.get_risk_measure_baseline()
-        lam, WD, RM_Q, fig = StressModel.optimise_rm(RM_P * np.array([1.1]), title=f"p={p}")
-
-        filename = f'Plots/ex/alpha-beta/data_alpha_{alpha}_beta_{beta}_p_{p}_10'
-        # fig.savefig(filename + '_inv.pdf', format='pdf')
-
-        plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "ES", title=f"p={p}", save=False)
-
-    # -------------------- Test Mean and Variance Optimisation -------------------- #
-    mean_P, std_P = StressModel.get_mean_std_baseline()
-
-    mean_stress = 20
-    std_stress = -20
-    lam, WD, mv_Q, fig = StressModel.optimise_mean_std((1 + mean_stress/100) * mean_P, (1 + std_stress/100) * std_P)
-
-    filename = f'Plots/ex/mean-std/data_M{mean_stress}_S{std_stress}'
-    # fig.savefig(filename + '_inv.pdf',format='pdf')
-
-    plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, 'mean-std', save=False)
-
-    # -------------------- Test mean-variance + ES measure -------------------- #
-    alpha = 0.95
-    gamma_ES = [lambda u: (u >= alpha) / (1 - alpha)]
-
-    StressModel.set_gamma(gamma_ES)
-
-    RM_P = StressModel.get_risk_measure_baseline()
-    mean_P, std_P = StressModel.get_mean_std_baseline()
-
-    rm_stresses = [10, 5, 0]
-    mean_stresses = [10, -5, 0]
-    std_stresses = [-10, 0, 20]
-
-    # stresses = [-10, 0, 10]
-    # for stress in itertools.product(stresses, repeat=3):
-
-    for i in range(len(rm_stresses)):
-        rm_stress = rm_stresses[i]
-        mean_stress = mean_stresses[i]
-        std_stress = std_stresses[i]
-        _, _, RM_Q, _, fig = StressModel.optimise_rm_mean_std(np.array([1 + rm_stress / 100]) * RM_P,
-                                                              (1 + mean_stress / 100) * mean_P,
-                                                              (1 + std_stress / 100) * std_P)
-
-        filename = f'Plots/ex/ES-mean-std/data_alpha_{alpha}_ES_{rm_stress}_M_{mean_stress}_S_{std_stress}'
-        # fig.savefig(filename + '_inv.pdf', format='pdf')
-
-        plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "rm-mean-std", save=False)
-
-    # # -------------------- Test Utility and risk measure -------------------- #
-    # # ******** NOT Converging ********
-    # hara = lambda a, b, eta, x: (1 - eta) / eta * (a * x / (1 - eta) + b) ** eta
-    #
-    # b = lambda eta: 5 * (eta / (1 - eta)) ** (1 / eta)
-    # y = np.linspace(1e-20, 30, 1000)
-    # plt.plot(y, hara(1, b(0.2), 0.2, y))
-    # plt.show()
-    #
-    # # Set gammas
+    # # -------------------- Optimize ES risk measure -------------------- #
     # alpha = [0.8, 0.95]
-    # gammas = [lambda u: (u > alpha[0]) / (1 - alpha[0]), lambda u: (u > alpha[1]) / (1 - alpha[1])]
-    # StressModel.set_gamma(gammas)
+    # gamma = [lambda u: (u > alpha[0]) / (1 - alpha[0]), lambda u: (u > alpha[1]) / (1 - alpha[1])]
     #
+    # StressModel.set_gamma(gamma)
     # RM_P = StressModel.get_risk_measure_baseline()
-    # Utility_P = StressModel.get_hara_utility(1, b(0.2), 0.2, StressModel.u, StressModel.F_inv)
     #
-    # utility_stresses = [0, 0.5, 1]
-    # rm_stresses = [-3, 3]
+    # ES_stresses = [[0, 1], [5, 5]]
+    # colors = colors + ['orange', 'violet']
+    # for stress in ES_stresses:
+    #     lam, WD, RM_Q, fig = StressModel.optimise_rm(RM_P * np.array([1 + stress[0]/100, 1 + stress[1]/100]))
     #
-    # for utility_stress in utility_stresses:
-    #     _, _, _, fig = StressModel.optimise_HARA(1, b(0.2), 0.2, Utility_P * (1 + utility_stress / 100),
-    #                                              RM_P * np.array([1 + rm_stresses[0] / 100, 1 + rm_stresses[1] / 100]))
+    #     filename = f'Plots/ex/ES/data_ES_80_{stress[0]}_95_{stress[1]}'
+    #     # fig.savefig(filename + '_inv.pdf',format='pdf')
     #
-    #     filename = f'Plots/ex/HARA-ES/data_utility_{utility_stress}_ES_{rm_stresses[0]}_{rm_stresses[1]}'
+    #     StressModel.plot_dist(filename, type="ES", save=False)
+    #     print(StressModel.reverse_sensitivity_measure(lambda x: x, StressModel.data['x']))
+    #     sensitivity_measures.append(StressModel.reverse_sensitivity_measure(lambda x: x, StressModel.data['x']))
+    #     labels.append(f'$ES_{{80}}$ {stress[0]}% | $ES_{{95}}$ {stress[1]}%')
+    # StressModel.plot_sensitivities(sensitivity_measures, filename, colors, labels, title='s(x)=x', save=False)
+
+    # # -------------------- Optimize alpha-beta risk measure -------------------- #
+    # p_list = [0.25, 0.5, 0.75]
+    # alpha = 0.9
+    # beta = 0.1
+    #
+    # for p in p_list:
+    #     alpha_beta_gamma = [lambda u: ((u < beta) * p + (u >= alpha) * (1 - p)) / (p * beta + (1 - p) * (1 - alpha))]
+    #
+    #     plt.plot(u, alpha_beta_gamma[0](u))
+    #     plt.ylabel(r'$\alpha_{0.9}-\beta_{0.1} \gamma(u)$')
+    #     plt.xlabel('u')
+    #     plt.show()
+    #
+    #     StressModel.set_gamma(alpha_beta_gamma)
+    #
+    #     # compute the baseline risk-measure of the base model
+    #     RM_P = StressModel.get_risk_measure_baseline()
+    #     lam, WD, RM_Q, fig = StressModel.optimise_rm(RM_P * np.array([1.1]), title=f"p={p}")
+    #
+    #     filename = f'Plots/ex/alpha-beta/data_alpha_{alpha}_beta_{beta}_p_{p}_10'
     #     # fig.savefig(filename + '_inv.pdf', format='pdf')
     #
-    #     plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "Utility", save=False)
+    #     plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "ES", title=f"p={p}", save=False)
+
+    # # -------------------- Test Mean and Variance Optimisation -------------------- #
+    # mean_P, std_P = StressModel.get_mean_std_baseline()
+    #
+    # mean_stress = [20, -10, 0]
+    # std_stress = [2, 2, 20]
+    #
+    # colors = colors + ['r', 'g', 'b']
+    # for i in range(len(mean_stress)):
+    #     lam, WD, mv_Q, fig = StressModel.optimise_mean_std((1 + mean_stress[i]/100) * mean_P, (1 + std_stress[i]/100) * std_P)
+    #
+    #     filename = f'Plots/ex/mean-std/data_M{mean_stress[i]}_S{std_stress[i]}'
+    #     # fig.savefig(filename + '_inv.pdf',format='pdf')
+    #
+    #     # StressModel.plot_dist(filename, type='mean-std', save=False)
+    #
+    #     sensitivity_measures = StressModel.reverse_sensitivity_measure(lambda x: x, StressModel.data['x'])
+    #     labels.append(f'mean {mean_stress[i]}% | std {std_stress[i]}%')
+    #
+    # StressModel.plot_sensitivities(sensitivity_measures, filename = f'Plots/ex/mean-std/data_M_S_sensitivity.pdf',
+    #                                labels=labels, colors=colors, title=r's(X)', save=False)
+
+
+    # # -------------------- Test mean-variance + ES measure -------------------- #
+    # alpha = 0.95
+    # gamma_ES = [lambda u: (u >= alpha) / (1 - alpha)]
+    #
+    # StressModel.set_gamma(gamma_ES)
+    #
+    # RM_P = StressModel.get_risk_measure_baseline()
+    # mean_P, std_P = StressModel.get_mean_std_baseline()
+    #
+    # rm_stresses = [10, 5, 0]
+    # mean_stresses = [10, -5, 0]
+    # std_stresses = [-10, 0, 20]
+    #
+    # # stresses = [-10, 0, 10]
+    # # for stress in itertools.product(stresses, repeat=3):
+    #
+    # for i in range(len(rm_stresses)):
+    #     rm_stress = rm_stresses[i]
+    #     mean_stress = mean_stresses[i]
+    #     std_stress = std_stresses[i]
+    #     _, _, RM_Q, _, fig = StressModel.optimise_rm_mean_std(np.array([1 + rm_stress / 100]) * RM_P,
+    #                                                           (1 + mean_stress / 100) * mean_P,
+    #                                                           (1 + std_stress / 100) * std_P)
+    #
+    #     filename = f'Plots/ex/ES-mean-std/data_alpha_{alpha}_ES_{rm_stress}_M_{mean_stress}_S_{std_stress}'
+    #     # fig.savefig(filename + '_inv.pdf', format='pdf')
+    #
+    #     plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "rm-mean-std", save=False)
+
+    # -------------------- Test Utility and risk measure -------------------- #
+    # ******** NOT Converging ********
+    hara = lambda a, b, eta, x: (1 - eta) / eta * (a * x / (1 - eta) + b) ** eta
+
+    # Find concave utility, maybe try different parameters? send current params in slack, range of y (from simulation)
+
+    b = lambda eta: 5 * (eta / (1 - eta)) ** (1 / eta)
+    y = np.linspace(1e-20, 30, 1000)
+    plt.plot(y, hara(1, b(0.2), 0.2, y))
+    plt.show()
+
+    # Set gammas
+    alpha = [0.8, 0.95]
+    gammas = [lambda u: (u > alpha[0]) / (1 - alpha[0]), lambda u: (u > alpha[1]) / (1 - alpha[1])]
+    StressModel.set_gamma(gammas)
+
+    RM_P = StressModel.get_risk_measure_baseline()
+    Utility_P = StressModel.get_hara_utility(1, b(0.2), 0.2, StressModel.u, StressModel.F_inv)
+
+    utility_stresses = [0, 0.1]
+    rm_stresses = [0, 1]
+
+    colors = colors + ['pink', 'purple', 'blue']
+    for utility_stress in utility_stresses:
+        _, _, _, fig = StressModel.optimise_HARA(1, b(0.2), 0.2, Utility_P * (1 + utility_stress / 100),
+                                                 RM_P * np.array([1 + rm_stresses[0] / 100, 1 + rm_stresses[1] / 100]))
+
+        filename = f'Plots/ex/HARA-ES/data_utility_{utility_stress}_ES_{rm_stresses[0]}_{rm_stresses[1]}'
+        # fig.savefig(filename + '_inv.pdf', format='pdf')
+
+        StressModel.plot_dist(filename, type="Utility", save=False)
+
+        S = np.zeros(10)
+        for k in range(10):
+            # Get s:R->R
+            level = 0.95
+            s = lambda x: x > gamma.ppf(level, a=5, loc=25, scale=0.2 * (k + 1))
+            S[k] = StressModel.reverse_sensitivity_measure(s, StressModel.data['x'][:, k])
+        print(S)
+        sensitivity_measures.append(S)
+
+        labels.append(f'utility {utility_stress}% | $ES_{{80}}$ {rm_stresses[0]}% | $ES_{{95}}$ {rm_stresses[1]}%')
+
+    StressModel.plot_sensitivities(sensitivity_measures, labels=labels, colors=colors,
+                                   title=r's($X_i$) = I{$X_i > \breve{F_i}(0.95)$}', save=False,
+                                   filename = f'Plots/ex/data_ES_utility_sensitivity.pdf')

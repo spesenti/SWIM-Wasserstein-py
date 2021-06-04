@@ -29,6 +29,7 @@ class W_Stress:
         self.y = y
 
         self.h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5)
+        self.h_x = 1.06 * np.std(data["x"], axis=0) * (len(data["y"])) ** (-1 / 5)
         self.f = lambda y: np.sum(norm.pdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / self.h_y) /
                                   self.h_y / len(data["y"]), axis=1).reshape(-1)
 
@@ -47,6 +48,8 @@ class W_Stress:
         # Initialize
         self.Gs_inv = None
         self.gammas = []
+        self.gs = None
+        self.Gs = None
 
     # Static functions
     @staticmethod
@@ -123,12 +126,123 @@ class W_Stress:
         plt.show()
         return
 
+    def plot_sensitivities(self, sensitivity_measures, filename, colors, labels, title=None, save=True):
+        n = len(sensitivity_measures)
+        w = round(1/n, 1) - 0.1
+
+        scale = - np.floor(n/2)
+        for i in range(n):
+            if n%2 == 0:
+                plt.bar(np.arange(10) + scale * w, sensitivity_measures[i], color=colors[i],
+                    label=labels[i], width=w)
+                scale += 1
+
+            else:
+                plt.bar(range(10) + scale * w, sensitivity_measures[i], color=colors[i],
+                        label=labels[i], width=w)
+                scale += 1
+
+        plt.title(title)
+        plt.xlabel('X')
+        plt.ylim(-1,1)
+        plt.legend()
+
+        if save:
+            plt.savefig(filename, type='pdf')
+
+        plt.show()
+
+    def plot_dist(self, filename, type="", title="", save=True):
+        y_P = np.linspace(self.F_inv[5], self.F_inv[-5], 1000)
+        y_Q = np.linspace(self.Gs_inv[3], self.Gs_inv[-3], 1000)
+
+        self.set_distribution(self.u, self.Gs_inv, y_Q)
+
+        fig = plt.figure(figsize=(5, 4))
+        plt.plot(y_Q, self.gs(y_Q), color='r', label='$g^*_Y$')
+        plt.plot(y_P, self.f(y_P), '--', color='b', label='$f_Y$')
+        plt.ylim(bottom=0)
+        plt.title(title)
+        plt.show()
+
+        if save:
+            fig.savefig(filename + '_density.pdf', format='pdf')
+
+        fig = plt.figure(figsize=(5, 4))
+        plt.plot(y_Q, self.Gs(y_Q), color='r', label='$G^*_Y$')
+        plt.plot(y_P, self.F(y_P), '--', color='b', label='$F_Y$')
+        plt.legend(fontsize=14)
+        plt.title(title)
+        plt.show()
+
+        if save:
+            fig.savefig(filename + '_CDF.pdf', format='pdf')
+
+        idx = np.where(np.diff(self.Gs_inv) < 1e-8)[0][0]
+
+        fig = plt.figure(figsize=(4, 4))
+
+        dQ_dP = self.gs(y_Q) / self.f(y_Q)
+        if type == "ES":
+            dQ_dP[:idx] = 1
+        plt.plot(y_Q, dQ_dP)
+
+        plt.ylim(0, 15)
+        plt.xlabel(r"$y$", fontsize=18)
+        plt.ylabel(r"$\frac{g^{*}_Y}{f_Y}$", fontsize=22)
+        plt.tight_layout()
+        plt.show()
+
+        if save:
+            fig.savefig(filename + '_RN.pdf', format='pdf')
+
+        # Get index for x- and y-values
+        idx = (self.data["y"] >= y_Q[0]) & (self.data["y"] <= y_Q[-1])
+
+        # Get adjusted g*/f
+        w = self.get_weights()
+
+        data_y_idx = self.data["y"][idx]
+        data_x_idx = self.data["x"][idx]
+        w_idx = w[idx]
+
+        num_inputs = self.data['x'].shape[1]
+        nrows = int(np.ceil(num_inputs/2))
+        fig, ax = plt.subplots(nrows=nrows, ncols=2, figsize=(15,10))
+
+        ind = 0
+        for i in range(nrows):
+            for j in range(2):
+                x_axis = np.linspace(0.9 * np.quantile(self.data["x"][:, ind], 0.005),
+                                     np.quantile(self.data["x"][:, ind], 0.995) * 1.1,
+                                     len(w))
+
+                f_x = self.f_x(self.data["x"][:, ind], self.h_x[ind])  # under P: KDE of marginal distribution of xi
+                gs_x = self.gs_x(self.data["x"][:, ind], self.h_x[ind], w)  # under Q: KDE of marginal distribution of xi
+
+                mean_f = np.mean(self.data["x"][:, ind])
+                mean_gs = np.sum(self.data["x"][:, ind] * w) / np.sum(w)
+
+                ax[i, j].plot(x_axis, f_x(x_axis), color='blue', label='$f_X$')
+                ax[i, j].plot(x_axis, gs_x(x_axis), color='red', label='$g^*_X$')
+                ax[i, j].axvline(x=mean_f, color='blue', linestyle='dashed', label='E[$f_X$]')
+                ax[i, j].axvline(x=mean_gs, color='red', linestyle='dashed', label='E[$g^*_X$]')
+                ax[i, j].set_title('$X_{%d}$'%(ind+1))
+
+                ind += 1
+
+        plt.legend()
+        fig.tight_layout()
+        plt.show()
+
+        return
+
     # Get statistics (Wasserstein distance, risk measure, mean, standard deviation)
     def wasserstein_distance(self):
         # Calculate the Wasserstein distance W2(G, F)
         return np.sqrt(self.integrate((self.Gs_inv - self.F_inv) ** 2, self.u))
 
-    def reverse_sensitivity_measure(self, s):
+    def reverse_sensitivity_measure(self, s, x):
         """
         :param s: lambda function s:R -> R
         :return: array of reverse sensitivity measures
@@ -138,30 +252,42 @@ class W_Stress:
             print("No stressed model defined. Please run an optimization before proceeding.")
             return None
 
-        x = self.data['x']
         w = self.get_weights()
-
-        num_inputs = x.shape[1]
         N = x.shape[0]
-        S = np.zeros(num_inputs)
-        for i in range(num_inputs):
-            EQ_sX = np.sum(np.multiply(s(x[:,i]) , w)) / N # Q: should this be np.sum(w) insteado of N?
-            EP_sX = np.mean(s(x[:,i]))
 
-            xi_inc = np.sort(x[:, i])
+        if x.ndim == 1:
+            EQ_sX = np.sum(np.multiply(s(x), w)) / N
+            EP_sX = np.mean(s(x))
+
+            x_inc = np.sort(x)
             if EQ_sX >= EP_sX:
-                plt.scatter(x[:, i], w, marker='.', color='green')
-
                 w_inc = np.sort(w)
-                plt.plot(xi_inc, w_inc, color='red')
-                plt.show()
-                max_EQ = np.mean(np.multiply(s(xi_inc), w_inc))
-                S[i] = (EQ_sX - EP_sX)/(max_EQ - EP_sX)
+                max_EQ = np.mean(np.multiply(s(x_inc), w_inc))
+                S = (EQ_sX - EP_sX) / (max_EQ - EP_sX)
 
             else:
                 w_dec = np.sort(w)[::-1]
-                min_EQ = np.mean(np.multiply(s(xi_inc), w_dec))
-                S[i] = -(EQ_sX - EP_sX) / (min_EQ - EP_sX)
+                min_EQ = np.mean(np.multiply(s(x_inc), w_dec))
+                S = -(EQ_sX - EP_sX) / (min_EQ - EP_sX)
+
+        else:
+            num_inputs = x.shape[1]
+            S = np.zeros(num_inputs)
+
+            for i in range(num_inputs):
+                EQ_sX = np.sum(np.multiply(s(x[:,i]) , w)) / N
+                EP_sX = np.mean(s(x[:,i]))
+
+                xi_inc = np.sort(x[:, i])
+                if EQ_sX >= EP_sX:
+                    w_inc = np.sort(w)
+                    max_EQ = np.mean(np.multiply(s(xi_inc), w_inc))
+                    S[i] = (EQ_sX - EP_sX)/(max_EQ - EP_sX)
+
+                else:
+                    w_dec = np.sort(w)[::-1]
+                    min_EQ = np.mean(np.multiply(s(xi_inc), w_dec))
+                    S[i] = -(EQ_sX - EP_sX) / (min_EQ - EP_sX)
 
         return S
 
@@ -169,25 +295,28 @@ class W_Stress:
         # Get smoother results, dependent on KDE approximation
         y_gd = np.linspace(self.Gs_inv[3], self.Gs_inv[-3], 500)
 
-        # Get gs, f
-        _, _, _ = self.distribution(self.u, self.Gs_inv, y_gd)
+        # Get gs, Gs
+        self.set_distribution(self.u, self.Gs_inv, y_gd)
 
-        print("computing gs at grid points...")
+        # print("computing gs at grid points...")
         gs = self.gs(y_gd)
         gs /= self.integrate(gs, y_gd)
 
-        print("computing f at grid points...")
+        # print("computing f at grid points...")
         f = self.f(y_gd)
         f /= self.integrate(f, y_gd)
 
         dQ_dP = gs / f
 
-        print("E[dQ/dP]", self.integrate(dQ_dP * f, y_gd))
+        # print("E[dQ/dP]", self.integrate(dQ_dP * f, y_gd))
 
-        print("computing weights...")
+        # print("computing weights...")
         w = np.zeros(len(self.data["y"]))
         for i in range(len(self.data["y"])):
             w[i] = self.integrate(norm.pdf((y_gd - self.data["y"][i]) / self.h_y) / self.h_y * dQ_dP, y_gd)
+
+        # Normalize w to sum to N = len(self.data["y"])
+        w = w/np.sum(w) * len(self.data["y"])
 
         return w
 
@@ -315,9 +444,9 @@ class W_Stress:
         return self.ir.fit_transform(self.u, ell)
 
     # distribution
-    def distribution(self, u, G_inv, x):
+    def set_distribution(self, u, G_inv, x):
 
-        print("using qtl derivative")
+        # print("using qtl derivative")
 
         eps = np.cumsum(1e-10 * np.ones(len(G_inv)))
         x_coarse = eps + G_inv
@@ -329,7 +458,7 @@ class W_Stress:
             # Manually fix interpolation range
             x_coarse[0] = np.min(x)
 
-        G_interp = interpolate.interp1d(x_coarse, u, kind='linear')
+        G_interp = interpolate.interp1d(x_coarse, u, kind='linear', fill_value='extrapolate')
 
         # print("G_inv coarse | ", np.min(0.5 * (u[2:] + u[:-2])), np.max(0.5 * (u[2:] + u[:-2])))
         # print("G_inv fine | ", np.min(G_interp(x)), np.max(G_interp(x)))
@@ -341,7 +470,7 @@ class W_Stress:
 
 
         dG_inv = (G_inv[2:] - G_inv[:-2]) / (u[2:] - u[:-2])
-        dG_inv_interp = interpolate.interp1d(x_inv_coarse, dG_inv, kind='linear')
+        dG_inv_interp = interpolate.interp1d(x_inv_coarse, dG_inv, kind='linear', fill_value='extrapolate')
 
         G = G_interp(x)
         g = 1 / dG_inv_interp(G_interp(x))
@@ -349,7 +478,31 @@ class W_Stress:
         self.Gs = G_interp
         self.gs = lambda x: 1 / dG_inv_interp(G_interp(x))
 
-        return x, g, G
+        return
+
+    def f_x(self, xi, h_xi):
+        """
+        :param x_grid: 1D array representing points for evaluation
+        :param xi: 1D array representing xi
+        :return f: function representing KDE density of xi_data under P evaluated at x_grid
+        """
+
+        f = lambda x: np.sum(norm.pdf((x.reshape(-1, 1) - xi.reshape(1, -1)) / h_xi) /
+                             h_xi / len(xi), axis=1).reshape(-1)
+
+        return f
+
+    def gs_x(self, xi, h_xi, w):
+        """
+        :param f_x: 1D array representing density under P evaluated at x_grid
+        :param w: 1D array representing the weights
+        :return gs: 1D representing KDE density of xi_data under Q evaluted at x_grid
+        """
+
+        gs = lambda x: np.sum(w * norm.pdf((x.reshape(-1, 1) - xi.reshape(1, -1)) / h_xi) /
+                             h_xi / len(xi), axis=1).reshape(-1)
+
+        return gs
 
     # optimise functions
     def optimise_rm(self, rm, title=""):
@@ -550,7 +703,7 @@ class W_Stress:
             RM = self.get_risk_measure_stressed()
             Utility = self.get_hara_utility(a, b, eta, self.u, self.Gs_inv)
 
-            if self.iter > 1000 * 15:
+            if self.iter > 1000 * 20:
                 # manually terminate search
                 search = False
                 print("WARNING: Search incomplete. Terminating ... ")
