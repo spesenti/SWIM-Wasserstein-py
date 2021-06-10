@@ -6,12 +6,11 @@ Created on Tue Mar  2 13:37:12 2021
 """
 
 import numpy as np
+import random
 
 from sklearn.isotonic import IsotonicRegression
 
-from scipy import interpolate
-from scipy import optimize
-
+from scipy import interpolate, optimize, integrate
 from scipy.stats import norm
 
 import matplotlib.pyplot as plt
@@ -30,10 +29,11 @@ class W_Stress:
 
         self.h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5)
         self.h_x = 1.06 * np.std(data["x"], axis=0) * (len(data["y"])) ** (-1 / 5)
-        self.f = lambda y: np.sum(norm.pdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / self.h_y) /
+
+        self.f = lambda y: np.sum(norm.pdf((np.array(y).reshape(-1, 1) - data["y"].reshape(1, -1)) / self.h_y) /
                                   self.h_y / len(data["y"]), axis=1).reshape(-1)
 
-        self.F = lambda y: np.sum(norm.cdf((y.reshape(-1, 1) - data["y"].reshape(1, -1)) / self.h_y) / len(data["y"]),
+        self.F = lambda y: np.sum(norm.cdf((np.array(y).reshape(-1, 1) - data["y"].reshape(1, -1)) / self.h_y) / len(data["y"]),
                                   axis=1).reshape(-1)
 
         if not bracket:
@@ -56,6 +56,17 @@ class W_Stress:
     def integrate(f, u):
         # integral of f over space x using Reimann sums
         return np.sum(0.5 * (f[:-1] + f[1:]) * np.diff(u))
+
+    @staticmethod
+    def double_integral(f, x, y):
+        # integrate f over x and y using double Reimann sums
+        # f is of size MxN, x is of size N, y is of size M
+        x_diff = np.diff(x)
+        y_diff = np.diff(y)
+        areas = np.outer(y_diff, x_diff)
+
+        # Currently using a corner - more accurate to use centre of area?
+        return np.sum(np.multiply(f[:-1, :-1], areas))
 
     # Plot functions
     def plot_G_inv(self, G_inv, title=""):
@@ -138,7 +149,7 @@ class W_Stress:
                 scale += 1
 
             else:
-                plt.bar(range(10) + scale * w, sensitivity_measures[i], color=colors[i],
+                plt.bar(np.arange(10) + scale * w, sensitivity_measures[i], color=colors[i],
                         label=labels[i], width=w)
                 scale += 1
 
@@ -148,7 +159,7 @@ class W_Stress:
         plt.legend()
 
         if save:
-            plt.savefig(filename, type='pdf')
+            plt.savefig(filename, format='pdf')
 
         plt.show()
 
@@ -233,6 +244,7 @@ class W_Stress:
 
         plt.legend()
         fig.tight_layout()
+        plt.savefig(filename+'_xdensity.pdf', format='pdf')
         plt.show()
 
         return
@@ -290,6 +302,83 @@ class W_Stress:
                     S[i] = -(EQ_sX - EP_sX) / (min_EQ - EP_sX)
 
         return S
+
+    def alternate_sensitivity_measure(self):
+        if self.Gs_inv is None:
+            print("No stressed model defined. Please run an optimization before proceeding.")
+            return None
+
+        w = self.get_weights()
+        x = self.data['x']
+        num_inputs = x.shape[1]
+        S = np.zeros(num_inputs)
+        delta_P = np.zeros(num_inputs)
+        delta_Q = np.zeros(num_inputs)
+
+        for i in range(num_inputs):
+            d_P = self.delta_P(x[:, i], self.data['y'], self.h_x[i], self.h_y)
+            d_Q = self.delta_Q(x[:, i], self.data['y'], self.h_x[i], self.h_y, w)
+            s = (d_Q - d_P) / d_P
+
+            delta_P[i] = d_P
+            delta_Q[i] = d_Q
+            S[i] = s
+            print(f"Sensitivity measure for X{i+1} has been calculated.")
+
+        return S, delta_P, delta_Q
+
+    def delta_P(self, Xi, Y, h_x, h_y):
+        x_axis = np.linspace(0.9 * np.quantile(Xi, 0.005),
+                             np.quantile(Xi, 0.995) * 1.1,
+                             100)
+        y_axis = np.linspace(0.9 * np.quantile(Y, 0.005),
+                             np.quantile(Y, 0.995) * 1.1,
+                             100)
+        x, y = np.meshgrid(x_axis, y_axis)
+        # f_XY returns [f(x1, y1), f(x2, y1), f(x3, y1), ... f(x1, y2), f(x2, y2), f(x3, y2), ...]
+        # f_XY = self.f_bivariate(self.data['x'][:, 0], self.data['y'], self.h_x[0], self.h_y)
+        f_XY = self.f_bivariate(Xi, Y, h_x, h_y)
+
+        f_X = self.f_x(Xi, h_x)
+        f_Y = self.f
+
+        x_1D = x.reshape(1, -1) # (x1, x2, x3, ..., x1, x2, x3, ...)
+        y_1D = y.reshape(1, -1) # (y1, y1, y1, ..., y2, y2, y2, ...)
+        val = np.abs(f_X(x_1D) * f_Y(y_1D) - f_XY(x, y)).reshape(100,100)
+
+        di_P = 0.5 * self.double_integral(val, x_axis, y_axis)
+        return di_P
+
+    def delta_Q(self, Xi, Y, h_x, h_y, w):
+        if self.Gs_inv is None:
+            print("No stressed model defined. Please run an optimization before proceeding.")
+            return None
+
+        # res = random.sample(list(enumerate(Xi)), 100)
+        # sorted_res = sorted(res, key = lambda x: x[1])
+        # sorted_inds = np.array([x[0] for x in sorted_res])
+        # x_axis = np.array([x[1] for x in sorted_res])
+        x_axis = np.sort(Xi)
+        sorted_inds = np.argsort(Xi)
+
+        y_axis = np.linspace(0.9 * np.quantile(Y, 0.005),
+                             np.quantile(Y, 0.995) * 1.1,
+                             100)
+        w_sorted = w[sorted_inds]
+
+        x, y = np.meshgrid(x_axis, y_axis)
+        # f_XY returns [f(x1, y1), f(x2, y1), f(x3, y1), ... f(x1, y2), f(x2, y2), f(x3, y2), ...]
+        f_XY = self.f_bivariate(Xi, Y, h_x, h_y)
+
+        f_X = self.f_x(Xi, h_x)
+        gs_Y = self.gs
+
+        x_1D = x.reshape(1, -1) # (x1, x2, x3, ..., x1, x2, x3, ...)
+        y_1D = y.reshape(1, -1) # (y1, y1, y1, ..., y2, y2, y2, ...)
+        val = np.abs(np.multiply(f_X(x_1D) * gs_Y(y_1D) - f_XY(x, y), np.tile(w_sorted, 100))).reshape(100,len(Xi))
+
+        di_P = 0.5 * self.double_integral(val, x_axis, y_axis)
+        return di_P
 
     def get_weights(self):
         # Get smoother results, dependent on KDE approximation
@@ -376,9 +465,12 @@ class W_Stress:
         # u(x) = (1 - eta)/eta * (a * x / (1-eta) + b)^eta
         # u'(x) = a * (a * x / (1-eta) + b)^(eta - 1)
         nu = lambda x: x - lam * a * (a / (1 - eta) * x + b) ** (eta - 1)
+        x = np.linspace(-b * (1 - eta) / a + 1e-10, 500, 10000)
+        plt.plot(x, nu(x))
+        plt.yscale('log')
+        plt.show()
 
         # Get g = nu_inv(.)
-        plot = False
         last_g = 0
         exception = False
         for i in range(len(u)):
@@ -398,6 +490,7 @@ class W_Stress:
             # plt.yscale('log')
             # plt.show()
 
+        # self.plot_G_inv(g)
         return g
 
     # gamma functions
@@ -482,12 +575,12 @@ class W_Stress:
 
     def f_x(self, xi, h_xi):
         """
-        :param x_grid: 1D array representing points for evaluation
         :param xi: 1D array representing xi
-        :return f: function representing KDE density of xi_data under P evaluated at x_grid
+        :param h_xi: bandwidth for xi
+        :return f: function representing KDE density of xi_data under P
         """
 
-        f = lambda x: np.sum(norm.pdf((x.reshape(-1, 1) - xi.reshape(1, -1)) / h_xi) /
+        f = lambda x: np.sum(norm.pdf((np.array(x).reshape(-1, 1) - xi.reshape(1, -1)) / h_xi) /
                              h_xi / len(xi), axis=1).reshape(-1)
 
         return f
@@ -499,10 +592,25 @@ class W_Stress:
         :return gs: 1D representing KDE density of xi_data under Q evaluted at x_grid
         """
 
-        gs = lambda x: np.sum(w * norm.pdf((x.reshape(-1, 1) - xi.reshape(1, -1)) / h_xi) /
+        gs = lambda x: np.sum(w * norm.pdf((np.array(x).reshape(-1, 1) - xi.reshape(1, -1)) / h_xi) /
                              h_xi / len(xi), axis=1).reshape(-1)
 
         return gs
+
+    def f_bivariate(self, X, Y, h_x, h_y):
+        """
+        :param x: 1D array representing X
+        :param y: 1D array representing Y
+        :param h_x: bandwidth for x
+        :param h_y: bandwidth for y
+        :return f: function representing KDE density of fXY(x,y) under P
+        """
+
+        f = lambda x, y: np.sum(norm.pdf((np.array(x).reshape(-1, 1) - X.reshape(1, -1)) / h_x) *
+                                norm.pdf((np.array(y).reshape(-1, 1) - Y.reshape(1, -1)) / h_y) /
+                                (h_x * h_y) / len(X), axis=1).reshape(-1)
+
+        return f
 
     # optimise functions
     def optimise_rm(self, rm, title=""):
