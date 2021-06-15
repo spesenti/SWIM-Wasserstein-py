@@ -5,3 +5,5 @@
 *.txt
 *.idea
 *.csv
+*.xlsx
+*.ipynb_checkpoints
