@@ -308,6 +308,7 @@ if __name__ == "__main__":
 
     # -------------------- Generate the model -------------------- #
     StressModel = W_Stress(data, u)
+    StressModel.plot_f_F()
 
     # -------------------- Optimize ES risk measure -------------------- #
     StressModel.set_gamma(gamma)
@@ -329,7 +330,6 @@ if __name__ == "__main__":
     # fig.savefig(filename + '_inv.pdf',format='pdf')
 
     plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "ES", save=False)
-
     w = generate_weights(data, StressModel)
 
     P, Q = metrics(data, w)
@@ -379,9 +379,9 @@ if __name__ == "__main__":
     RM_P = StressModel.get_risk_measure_baseline()
     mean_P, std_P = StressModel.get_mean_std_baseline()
 
-    rm_stresses = [10, 12, 15]
-    mean_stresses = [0, 0, 0]
-    std_stresses = [0, 0, 0]
+    rm_stresses = [10, 5, 0]
+    mean_stresses = [10, -5, 0]
+    std_stresses = [-10, 0, 20]
 
     # stresses = [-10, 0, 10]
     # for stress in itertools.product(stresses, repeat=3):
@@ -395,9 +395,9 @@ if __name__ == "__main__":
                                                               (1 + std_stress / 100) * std_P)
 
         filename = f'Plots/2D/ES-mean-std/data_alpha_{alpha}_ES_{rm_stress}_M_{mean_stress}_S_{std_stress}'
-        fig.savefig(filename + '_inv.pdf', format='pdf')
+        # fig.savefig(filename + '_inv.pdf', format='pdf')
 
-        plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "rm-mean-std", save=True)
+        plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "rm-mean-std", save=False)
 
     # -------------------- Test Utility and risk measure -------------------- #
     # ******** NOT Converging ********
@@ -426,4 +426,35 @@ if __name__ == "__main__":
         fig.savefig(filename + '_inv.pdf', format='pdf')
 
         plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "Utility")
+
+
+    # -------------------- Test Utility and alpha-beta risk measure -------------------- #
+    # ******** NOT Converging ********
+    hara = lambda a, b, eta, x: (1 - eta) / eta * (a * x / (1 - eta) + b) ** eta
+
+    b = lambda eta: 5 * (eta / (1 - eta)) ** (1 / eta)
+    y = np.linspace(1e-20, 30, 1000)
+    plt.plot(y, hara(1, b(0.2), 0.2, y))
+
+    # Set gammas
+    alpha = 0.9
+    beta = 0.1
+    p = 0.25
+    alpha_beta_gamma = [lambda u: ((u < beta) * p + (u >= alpha) * (1 - p)) / (p * beta + (1 - p) * (1 - alpha))]
+    StressModel.set_gamma(alpha_beta_gamma)
+
+    RM_P = StressModel.get_risk_measure_baseline()
+    Utility_P = StressModel.get_hara_utility(1, b(0.2), 0.2, StressModel.u, StressModel.F_inv)
+
+    utility_stresses = [0.5, 1, 3]
+    rm_stresses = [3]
+
+    for utility_stress in utility_stresses:
+        _, _, _, fig = StressModel.optimise_HARA(1, b(0.2), 0.2, Utility_P * (1 + utility_stress / 100),
+                                                 RM_P * np.array([1 + rm_stresses[0] / 100]))
+
+        filename = f'Plots/2D/HARA-ES/data_utility_{utility_stress}_alpha-beta_{rm_stresses[0]}'
+        # fig.savefig(filename + '_inv.pdf', format='pdf')
+
+        plot_dist(StressModel, filename, f, F, data, x1, x2, h_x, "Utility", save=False)
 
