@@ -28,13 +28,15 @@ class W_Stress:
         self.y = y
 
         self.h_y = 1.06 * np.std(data["y"]) * (len(data["y"])) ** (-1 / 5)
-        self.h_x = 1.06 * np.std(data["x"], axis=0) * (len(data["y"])) ** (-1 / 5)
+        if "x" in data:
+            self.h_x = 1.06 * np.std(data["x"], axis=0) * (len(data["y"])) ** (-1 / 5)
 
         self.f = lambda y: np.sum(norm.pdf((np.array(y).reshape(-1, 1) - data["y"].reshape(1, -1)) / self.h_y) /
                                   self.h_y / len(data["y"]), axis=1).reshape(-1)
 
-        self.F = lambda y: np.sum(norm.cdf((np.array(y).reshape(-1, 1) - data["y"].reshape(1, -1)) / self.h_y) / len(data["y"]),
-                                  axis=1).reshape(-1)
+        self.F = lambda y: np.sum(
+            norm.cdf((np.array(y).reshape(-1, 1) - data["y"].reshape(1, -1)) / self.h_y) / len(data["y"]),
+            axis=1).reshape(-1)
 
         if not bracket:
             bracket = [-10, 20]
@@ -67,6 +69,17 @@ class W_Stress:
 
         # Currently using a corner - more accurate to use centre of area?
         return np.sum(np.multiply(f[:-1, :-1], areas))
+
+    @staticmethod
+    def empirical(x):
+        n = len(x)
+
+        empirical_dist = np.zeros(n)
+        for i in range(n):
+            k = len(np.where(x <= x[i])[0])
+            empirical_dist[i] = k / n
+
+        return empirical_dist
 
     # Plot functions
     def plot_G_inv(self, G_inv, title=""):
@@ -139,13 +152,13 @@ class W_Stress:
 
     def plot_sensitivities(self, sensitivity_measures, filename, colors, labels, title=None, save=True):
         n = len(sensitivity_measures)
-        w = round(1/n, 1) - 0.1
+        w = round(1 / n, 1) - 0.1
 
-        scale = - np.floor(n/2)
+        scale = - np.floor(n / 2)
         for i in range(n):
-            if n%2 == 0:
+            if n % 2 == 0:
                 plt.bar(np.arange(10) + scale * w, sensitivity_measures[i], color=colors[i],
-                    label=labels[i], width=w)
+                        label=labels[i], width=w)
                 scale += 1
 
             else:
@@ -153,10 +166,10 @@ class W_Stress:
                         label=labels[i], width=w)
                 scale += 1
 
-        plt.title(title)
-        plt.xlabel('X')
-        plt.ylim(-1,1)
-        plt.legend()
+        plt.title(title, fontsize=16)
+        plt.xlabel('L')
+        plt.ylim(-1, 1)
+        plt.legend(loc='lower left', fontsize=14)
 
         if save:
             plt.savefig(filename, format='pdf')
@@ -207,6 +220,9 @@ class W_Stress:
         if save:
             fig.savefig(filename + '_RN.pdf', format='pdf')
 
+    def plot_xdensity(self, filename, save=True):
+        y_Q = np.linspace(self.Gs_inv[3], self.Gs_inv[-3], 1000)
+
         # Get index for x- and y-values
         idx = (self.data["y"] >= y_Q[0]) & (self.data["y"] <= y_Q[-1])
 
@@ -218,8 +234,8 @@ class W_Stress:
         w_idx = w[idx]
 
         num_inputs = self.data['x'].shape[1]
-        nrows = int(np.ceil(num_inputs/2))
-        fig, ax = plt.subplots(nrows=nrows, ncols=2, figsize=(15,10))
+        nrows = int(np.ceil(num_inputs / 2))
+        fig, ax = plt.subplots(nrows=nrows, ncols=2, figsize=(15, 10))
 
         ind = 0
         for i in range(nrows):
@@ -229,7 +245,8 @@ class W_Stress:
                                      len(w))
 
                 f_x = self.f_x(self.data["x"][:, ind], self.h_x[ind])  # under P: KDE of marginal distribution of xi
-                gs_x = self.gs_x(self.data["x"][:, ind], self.h_x[ind], w)  # under Q: KDE of marginal distribution of xi
+                gs_x = self.gs_x(self.data["x"][:, ind], self.h_x[ind],
+                                 w)  # under Q: KDE of marginal distribution of xi
 
                 mean_f = np.mean(self.data["x"][:, ind])
                 mean_gs = np.sum(self.data["x"][:, ind] * w) / np.sum(w)
@@ -238,14 +255,262 @@ class W_Stress:
                 ax[i, j].plot(x_axis, gs_x(x_axis), color='red', label='$g^*_X$')
                 ax[i, j].axvline(x=mean_f, color='blue', linestyle='dashed', label='E[$f_X$]')
                 ax[i, j].axvline(x=mean_gs, color='red', linestyle='dashed', label='E[$g^*_X$]')
-                ax[i, j].set_title('$X_{%d}$'%(ind+1))
+                ax[i, j].set_title('$L_{%d}$' % (ind + 1))
 
                 ind += 1
 
         plt.legend()
         fig.tight_layout()
-        plt.savefig(filename+'_xdensity.pdf', format='pdf')
+        if save:
+            plt.savefig(filename + '_xdensity.pdf', format='pdf')
         plt.show()
+
+        return
+
+    def plot_contour(self, ind1, ind2, filename, title=None, save=True, ylims=None, xlims=None):
+        # Get adjusted g*/f
+        w = self.get_weights()
+
+        x1 = self.data["x"][:, ind1]
+        x2 = self.data["x"][:, ind2]
+        f_x = self.f_bivariate(x1, x2, self.h_x[ind1], self.h_x[ind2])
+        gs_x = self.gs_bivariate(x1, x2, self.h_x[ind1], self.h_x[ind2], w)
+
+        plt.figure(figsize=(8, 4))
+
+        x1_axis = np.linspace(0.9 * np.quantile(x1, 0.05),
+                              np.quantile(x1, 0.95) * 1.05,
+                              100)
+        x2_axis = np.linspace(0.9 * np.quantile(x2, 0.05),
+                              np.quantile(x2, 0.95) * 1.05,
+                              100)
+        x, y = np.meshgrid(x1_axis, x2_axis)
+
+        # Both contour plots side by side
+        plt.subplot(1, 2, 1)
+        plt.contour(x1_axis, x2_axis, f_x(x, y).reshape(len(x2_axis), len(x1_axis)))
+        plt.title(f'P')
+        plt.xlabel(f"$L_{{{ind1 + 1}}}$", fontsize=18)
+        plt.ylabel(f"$L_{{{ind2 + 1}}}$", fontsize=18)
+
+        plt.subplot(1, 2, 2)
+        plt.contour(x1_axis, x2_axis, gs_x(x, y).reshape(len(x2_axis), len(x1_axis)))
+        plt.title(f'Q')
+        plt.xlabel(f"$L_{{{ind1 + 1}}}$", fontsize=18)
+        plt.ylabel(f"$L_{{{ind2 + 1}}}$", fontsize=18)
+
+        plt.tight_layout()
+        plt.show()
+
+        # Individual contour plots
+        fig = plt.figure(figsize=(4, 4))
+        f_x_plt_ctr = plt.contour(x1_axis, x2_axis, f_x(x, y).reshape(len(x2_axis), len(x1_axis)), alpha=0.2)
+        #         print(f'levels for L{ind1+1} vs L{ind2+1} are', f_x_plt_ctr.levels)
+        plt.contour(x1_axis, x2_axis, gs_x(x, y).reshape(len(x2_axis), len(x1_axis)), levels=f_x_plt_ctr.levels)
+        plt.scatter(x1, x2, color='r', s=0.1)
+        plt.xlabel(f"$L_{{{ind1 + 1}}}$", fontsize=18)
+        plt.ylabel(f"$L_{{{ind2 + 1}}}$", fontsize=18)
+        plt.title(title)
+        if ylims is not None:
+            plt.ylim(ylims)
+        if xlims is not None:
+            plt.xlim(xlims)
+        plt.tight_layout()
+        plt.show()
+
+        if save:
+            fig.savefig(filename + f'_data_L{ind1 + 1}_L{ind2 + 1}_Q.pdf', format='pdf')
+
+        return
+
+    def plot_contour_baseline(self, ind1, ind2, filename, save=True, ylims=None, xlims=None):
+        x1 = self.data["x"][:, ind1]
+        x2 = self.data["x"][:, ind2]
+        f_x = self.f_bivariate(x1, x2, self.h_x[ind1], self.h_x[ind2])
+
+        plt.figure(figsize=(8, 4))
+
+        x1_axis = np.linspace(0.9 * np.quantile(x1, 0.05),
+                              np.quantile(x1, 0.95) * 1.05,
+                              100)
+        x2_axis = np.linspace(0.9 * np.quantile(x2, 0.05),
+                              np.quantile(x2, 0.95) * 1.05,
+                              100)
+        x, y = np.meshgrid(x1_axis, x2_axis)
+        fig = plt.figure(figsize=(4, 4))
+        plt.contour(x1_axis, x2_axis, f_x(x, y).reshape(len(x2_axis), len(x1_axis)), alpha=0.8)
+        plt.scatter(x1, x2, color='r', s=0.1)
+        plt.xlabel(f"$L_{{{ind1 + 1}}}$", fontsize=18)
+        plt.ylabel(f"$L_{{{ind2 + 1}}}$", fontsize=18)
+        plt.title('baseline model')
+        if ylims is not None:
+            plt.ylim(ylims)
+        if xlims is not None:
+            plt.xlim(xlims)
+        plt.tight_layout()
+        plt.show()
+
+        if save:
+            fig.savefig(filename + f'_data_L{ind1 + 1}_L{ind2 + 1}_P.pdf', format='pdf')
+
+        return
+
+    def plot_contour_all(self, filename, title=None, save=True):
+        y_Q = np.linspace(self.Gs_inv[3], self.Gs_inv[-3], 1000)
+
+        num_inputs = self.data['x'].shape[1]
+
+        for ind1 in range(num_inputs - 1):
+            for ind2 in range(ind1 + 1, num_inputs):
+                self.plot_contour(ind1, ind2, filename, title, save)
+
+        return
+
+    def plot_contour_baseline_all(self, filename, save=True):
+        y_Q = np.linspace(self.Gs_inv[3], self.Gs_inv[-3], 1000)
+
+        num_inputs = self.data['x'].shape[1]
+
+        for ind1 in range(num_inputs - 1):
+            for ind2 in range(ind1 + 1, num_inputs):
+                self.plot_contour_baseline(ind1, ind2, filename, save)
+
+        return
+
+    def plot_copula(self, ind1, ind2, filename, title=None, save=True):
+        # Get adjusted g*/f
+        w = self.get_weights()
+
+        x1 = self.data["x"][:, ind1]
+        x2 = self.data["x"][:, ind2]
+
+        # Get KDE CDF
+        F_x1 = self.F_x(x1, self.h_x[ind1])
+        F_x2 = self.F_x(x2, self.h_x[ind2])
+
+        Gs_x1 = self.Gs_x(x1, self.h_x[ind1], w)
+        Gs_x2 = self.Gs_x(x2, self.h_x[ind2], w)
+
+        # Get Empirical CDF
+        u_F = self.empirical(F_x1(x1))
+        v_F = self.empirical(F_x2(x2))
+
+        #         # plot to check
+        #         df = pd.DataFrame({'F1': F_x1(x1), 'F2': F_x2(x2), 'u': u_F, 'v': v_F})
+        #         sns.jointplot(data=df, x="F1", y="F2")
+        #         plt.show()
+        #         sns.jointplot(data=df, x="u", y="v")
+        #         plt.show()
+
+        u_Gs = self.empirical(Gs_x1(x1))
+        v_Gs = self.empirical(Gs_x2(x2))
+
+        #         # plot to check
+        #         df = pd.DataFrame({'Gs1': Gs_x1(x1), 'Gs2': Gs_x2(x2), 'u': u_Gs, 'v': v_Gs})
+        #         sns.jointplot(data=df, x="Gs1", y="Gs2")
+        #         plt.show()
+        #         sns.jointplot(data=df, x="u", y="v")
+        #         plt.show()
+
+        u_axis = np.linspace(np.min(u_F), np.max(u_F) - 0.001, 100)
+        v_axis = np.linspace(np.min(v_F), np.max(v_F) - 0.001, 100)
+
+        u_grid, v_grid = np.meshgrid(u_axis, v_axis)
+
+        h_u = 1.06 * np.std(u_F, axis=0) * (len(u_F)) ** (-1 / 5)
+        h_v = 1.06 * np.std(v_F, axis=0) * (len(v_F)) ** (-1 / 5)
+
+        f_u = self.f_bivariate(u_F, v_F, h_u, h_v)  # under P
+        gs_v = self.gs_bivariate(u_Gs, v_Gs, h_u, h_v, w)  # under Q
+
+        #         # Both contour plots side by side
+        #         plt.subplot(1, 2, 1)
+
+        #         plt.contour(u_axis, v_axis, f_u(u_grid, v_grid).reshape(len(v_axis), len(u_axis)))
+        #         plt.title(f'P')
+        #         plt.xlabel(f"$L_{{{ind1+1}}}$", fontsize=18)
+        #         plt.ylabel(f"$L_{{{ind2+1}}}$", fontsize=18)
+
+        #         plt.subplot(1, 2, 2)
+        #         plt.contour(u_axis, v_axis, gs_v(u_grid, v_grid).reshape(len(v_axis), len(u_axis)))
+        #         plt.title(f'Q')
+        #         plt.xlabel(f"$L_{{{ind1+1}}}$", fontsize=18)
+        #         plt.ylabel(f"$L_{{{ind2+1}}}$", fontsize=18)
+
+        #         plt.tight_layout()
+        #         plt.show()
+
+        # Individual contour plots
+        fig = plt.figure(figsize=(4, 4))
+        f_x_plt_ctr = plt.contour(u_axis, v_axis, f_u(u_grid, v_grid).reshape(len(v_axis), len(u_axis)), alpha=0.2)
+        plt.contour(u_axis, v_axis, gs_v(u_grid, v_grid).reshape(len(v_axis), len(u_axis)), levels=f_x_plt_ctr.levels)
+        plt.scatter(u_F, v_F, color='r', s=0.1)
+        plt.xlabel(f"$F_{{{ind1 + 1}}}(L_{{{ind1 + 1}}})$", fontsize=18)
+        plt.ylabel(f"$F_{{{ind2 + 1}}}(L_{{{ind2 + 1}}})$", fontsize=18)
+        plt.title(title)
+        plt.ylim(0, 1.01)
+        plt.xlim(0, 1.01)
+        plt.tight_layout()
+        plt.show()
+
+        if save:
+            fig.savefig(filename + f'_copula_L{ind1 + 1}_L{ind2 + 1}_Q.pdf', format='pdf')
+
+        return
+
+    def plot_copula_baseline(self, ind1, ind2, filename, save=True):
+        x1 = self.data["x"][:, ind1]
+        x2 = self.data["x"][:, ind2]
+
+        # Get KDE CDF
+        F_x1 = self.F_x(x1, self.h_x[ind1])
+        F_x2 = self.F_x(x2, self.h_x[ind2])
+
+        # Get Empirical CDF
+        u_F = self.empirical(F_x1(x1))
+        v_F = self.empirical(F_x2(x2))
+
+        u_axis = np.linspace(np.min(u_F), np.max(u_F) - 0.001, 100)
+        v_axis = np.linspace(np.min(v_F), np.max(v_F) - 0.001, 100)
+
+        u_grid, v_grid = np.meshgrid(u_axis, v_axis)
+
+        h_u = 1.06 * np.std(u_F, axis=0) * (len(u_F)) ** (-1 / 5)
+        h_v = 1.06 * np.std(v_F, axis=0) * (len(v_F)) ** (-1 / 5)
+
+        f_u = self.f_bivariate(u_F, v_F, h_u, h_v)  # under P
+
+        fig = plt.figure(figsize=(4, 4))
+        plt.contour(u_axis, v_axis, f_u(u_grid, v_grid).reshape(len(v_axis), len(u_axis)), alpha=0.8)
+        plt.scatter(u_F, v_F, color='r', s=0.1)
+        plt.xlabel(f"$F_{{{ind1 + 1}}}(L_{{{ind1 + 1}}})$", fontsize=18)
+        plt.ylabel(f"$F_{{{ind2 + 1}}}(L_{{{ind2 + 1}}})$", fontsize=18)
+        plt.title('baseline model')
+        plt.ylim(0, 1.01)
+        plt.xlim(0, 1.01)
+        plt.tight_layout()
+        plt.show()
+
+        if save:
+            fig.savefig(filename + f'_copula_L{ind1 + 1}_L{ind2 + 1}_P.pdf', format='pdf')
+
+        return
+
+    def plot_copula_all(self, filename, title=None, save=True):
+        num_inputs = self.data['x'].shape[1]
+
+        for ind1 in range(num_inputs - 1):
+            for ind2 in range(ind1 + 1, num_inputs):
+                self.plot_copula(ind1, ind2, filename, title, save)
+
+        return
+
+    def plot_copula_baseline_all(self, filename, save=True):
+        num_inputs = self.data['x'].shape[1]
+
+        for ind1 in range(num_inputs - 1):
+            for ind2 in range(ind1 + 1, num_inputs):
+                self.plot_copula_baseline(ind1, ind2, filename, save)
 
         return
 
@@ -287,19 +552,55 @@ class W_Stress:
             S = np.zeros(num_inputs)
 
             for i in range(num_inputs):
-                EQ_sX = np.sum(np.multiply(s(x[:,i]) , w)) / N
-                EP_sX = np.mean(s(x[:,i]))
+                EQ_sX = np.sum(np.multiply(s(x[:, i]), w)) / N
+                EP_sX = np.mean(s(x[:, i]))
 
                 xi_inc = np.sort(x[:, i])
                 if EQ_sX >= EP_sX:
                     w_inc = np.sort(w)
                     max_EQ = np.mean(np.multiply(s(xi_inc), w_inc))
-                    S[i] = (EQ_sX - EP_sX)/(max_EQ - EP_sX)
+                    S[i] = (EQ_sX - EP_sX) / (max_EQ - EP_sX)
 
                 else:
                     w_dec = np.sort(w)[::-1]
                     min_EQ = np.mean(np.multiply(s(xi_inc), w_dec))
                     S[i] = -(EQ_sX - EP_sX) / (min_EQ - EP_sX)
+
+        return S
+
+    def reverse_sensitivity_measure_bivariate(self, s, x1, x2):
+        """
+        :param s: lambda function s:R -> R
+        :param x1: 1D array of x-values
+        :param x2: 1D array of x-values
+        :return: array of reverse sensitivity measures
+        """
+
+        if self.Gs_inv is None:
+            print("No stressed model defined. Please run an optimization before proceeding.")
+            return None
+
+        w = self.get_weights()
+        N = len(x1)
+
+        if N != len(x2):
+            print("x1 and x2 do not have the same length. Please check the inputs.")
+            return None
+
+        s_val = s(x1, x2)
+        EQ_sX = np.sum(np.multiply(s_val, w)) / N
+        EP_sX = np.mean(s_val)
+
+        s_inc = np.sort(s_val)
+        if EQ_sX >= EP_sX:
+            w_inc = np.sort(w)
+            max_EQ = np.mean(np.multiply(s_inc, w_inc))
+            S = (EQ_sX - EP_sX) / (max_EQ - EP_sX)
+
+        else:
+            w_dec = np.sort(w)[::-1]
+            min_EQ = np.mean(np.multiply(s_inc, w_dec))
+            S = -(EQ_sX - EP_sX) / (min_EQ - EP_sX)
 
         return S
 
@@ -323,7 +624,7 @@ class W_Stress:
             delta_P[i] = d_P
             delta_Q[i] = d_Q
             S[i] = s
-            print(f"Sensitivity measure for X{i+1} has been calculated.")
+            print(f"Sensitivity measure for X{i + 1} has been calculated.")
 
         return S, delta_P, delta_Q
 
@@ -342,9 +643,9 @@ class W_Stress:
         f_X = self.f_x(Xi, h_x)
         f_Y = self.f
 
-        x_1D = x.reshape(1, -1) # (x1, x2, x3, ..., x1, x2, x3, ...)
-        y_1D = y.reshape(1, -1) # (y1, y1, y1, ..., y2, y2, y2, ...)
-        val = np.abs(f_X(x_1D) * f_Y(y_1D) - f_XY(x, y)).reshape(100,100)
+        x_1D = x.reshape(1, -1)  # (x1, x2, x3, ..., x1, x2, x3, ...)
+        y_1D = y.reshape(1, -1)  # (y1, y1, y1, ..., y2, y2, y2, ...)
+        val = np.abs(f_X(x_1D) * f_Y(y_1D) - f_XY(x, y)).reshape(100, 100)
 
         di_P = 0.5 * self.double_integral(val, x_axis, y_axis)
         return di_P
@@ -373,9 +674,9 @@ class W_Stress:
         f_X = self.f_x(Xi, h_x)
         gs_Y = self.gs
 
-        x_1D = x.reshape(1, -1) # (x1, x2, x3, ..., x1, x2, x3, ...)
-        y_1D = y.reshape(1, -1) # (y1, y1, y1, ..., y2, y2, y2, ...)
-        val = np.abs(np.multiply(f_X(x_1D) * gs_Y(y_1D) - f_XY(x, y), np.tile(w_sorted, 100))).reshape(100,len(Xi))
+        x_1D = x.reshape(1, -1)  # (x1, x2, x3, ..., x1, x2, x3, ...)
+        y_1D = y.reshape(1, -1)  # (y1, y1, y1, ..., y2, y2, y2, ...)
+        val = np.abs(np.multiply(f_X(x_1D) * gs_Y(y_1D) - f_XY(x, y), np.tile(w_sorted, 100))).reshape(100, len(Xi))
 
         di_P = 0.5 * self.double_integral(val, x_axis, y_axis)
         return di_P
@@ -405,7 +706,7 @@ class W_Stress:
             w[i] = self.integrate(norm.pdf((y_gd - self.data["y"][i]) / self.h_y) / self.h_y * dQ_dP, y_gd)
 
         # Normalize w to sum to N = len(self.data["y"])
-        w = w/np.sum(w) * len(self.data["y"])
+        w = w / np.sum(w) * len(self.data["y"])
 
         return w
 
@@ -465,10 +766,6 @@ class W_Stress:
         # u(x) = (1 - eta)/eta * (a * x / (1-eta) + b)^eta
         # u'(x) = a * (a * x / (1-eta) + b)^(eta - 1)
         nu = lambda x: x - lam * a * (a / (1 - eta) * x + b) ** (eta - 1)
-        x = np.linspace(-b * (1 - eta) / a + 1e-10, 500, 10000)
-        plt.plot(x, nu(x))
-        plt.yscale('log')
-        plt.show()
 
         # Get g = nu_inv(.)
         last_g = 0
@@ -561,7 +858,6 @@ class W_Stress:
             # Manually fix interpolation range
             x_inv_coarse[0] = np.min(G_interp(x))
 
-
         dG_inv = (G_inv[2:] - G_inv[:-2]) / (u[2:] - u[:-2])
         dG_inv_interp = interpolate.interp1d(x_inv_coarse, dG_inv, kind='linear', fill_value='extrapolate')
 
@@ -585,22 +881,48 @@ class W_Stress:
 
         return f
 
+    def F_x(self, xi, h_xi):
+        """
+        :param xi: 1D array representing xi
+        :param h_xi: bandwidth for xi
+        :return F: function representing KDE CDF of xi_data under P
+        """
+
+        F = lambda x: np.sum(norm.cdf((np.array(x).reshape(-1, 1) - xi.reshape(1, -1)) / h_xi) /
+                             len(xi), axis=1).reshape(-1)
+
+        return F
+
     def gs_x(self, xi, h_xi, w):
         """
-        :param f_x: 1D array representing density under P evaluated at x_grid
+        :param xi: 1D array representing xi
+        :param h_xi: bandwidth for xi
         :param w: 1D array representing the weights
-        :return gs: 1D representing KDE density of xi_data under Q evaluted at x_grid
+        :return gs: 1D representing KDE density of xi_data under Q
         """
 
         gs = lambda x: np.sum(w * norm.pdf((np.array(x).reshape(-1, 1) - xi.reshape(1, -1)) / h_xi) /
-                             h_xi / len(xi), axis=1).reshape(-1)
+                              h_xi / len(xi), axis=1).reshape(-1)
 
         return gs
 
+    def Gs_x(self, xi, h_xi, w):
+        """
+        :param xi: 1D array representing xi
+        :param h_xi: bandwidth for xi
+        :param w: 1D array representing the weights
+        :return Gs: 1D representing KDE CDF of xi_data under Q
+        """
+
+        Gs = lambda x: np.sum(w * norm.cdf((np.array(x).reshape(-1, 1) - xi.reshape(1, -1)) / h_xi) /
+                              len(xi), axis=1).reshape(-1)
+
+        return Gs
+
     def f_bivariate(self, X, Y, h_x, h_y):
         """
-        :param x: 1D array representing X
-        :param y: 1D array representing Y
+        :param X: 1D array representing X
+        :param Y: 1D array representing Y
         :param h_x: bandwidth for x
         :param h_y: bandwidth for y
         :return f: function representing KDE density of fXY(x,y) under P
@@ -612,7 +934,55 @@ class W_Stress:
 
         return f
 
-    # optimise functions
+    def F_bivariate(self, X, Y, h_x, h_y):
+        """
+        :param X: 1D array representing X
+        :param Y: 1D array representing Y
+        :param h_x: bandwidth for x
+        :param h_y: bandwidth for y
+        :return F: function representing KDE CDF of FXY(x,y) under P
+        """
+
+        F = lambda x, y: np.sum(norm.cdf((np.array(x).reshape(-1, 1) - X.reshape(1, -1)) / h_x) *
+                                norm.cdf((np.array(y).reshape(-1, 1) - Y.reshape(1, -1)) / h_y) /
+                                len(X), axis=1).reshape(-1)
+
+        return F
+
+    def gs_bivariate(self, X, Y, h_x, h_y, w):
+        """
+        :param X: 1D array representing X
+        :param Y: 1D array representing Y
+        :param h_x: bandwidth for x
+        :param h_y: bandwidth for y
+        :param w: weights
+        :return gs: function representing KDE density of gsXY(x,y) under Q
+        """
+
+        gs = lambda x, y: np.sum(w * norm.pdf((np.array(x).reshape(-1, 1) - X.reshape(1, -1)) / h_x) *
+                                 norm.pdf((np.array(y).reshape(-1, 1) - Y.reshape(1, -1)) / h_y) /
+                                 (h_x * h_y) / len(X), axis=1).reshape(-1)
+
+        return gs
+
+    def Gs_bivariate(self, X, Y, h_x, h_y, w):
+        """
+        :param X: 1D array representing X
+        :param Y: 1D array representing Y
+        :param h_x: bandwidth for x
+        :param h_y: bandwidth for y
+        :param w: weights
+        :return Gs: function representing KDE CDF of GsXY(x,y) under Q
+        """
+
+        Gs = lambda x, y: np.sum(w * norm.cdf((np.array(x).reshape(-1, 1) - X.reshape(1, -1)) / h_x) *
+                                 norm.cdf((np.array(y).reshape(-1, 1) - Y.reshape(1, -1)) / h_y) /
+                                 len(X), axis=1).reshape(-1)
+
+        return Gs
+
+        # optimise functions
+
     def optimise_rm(self, rm, title=""):
         # Solve optimization problem with risk measure constraints gammas
         # min. W2(G,F) s.t. rho_gamma(G) = r for each risk measure
@@ -622,6 +992,7 @@ class W_Stress:
             return
 
         self.iter = 0
+
         # Calculate the error for set of Lagrange multipliers lambda
         def constraint_error(lam):
             # Get the stressed inverse distribution Gs_inv
@@ -668,6 +1039,7 @@ class W_Stress:
     def optimise_mean_std(self, m, s, title=""):
 
         self.iter = 0
+
         def constraint_error(lam):
 
             ell = self.ell_mean_std(lam, m)
@@ -718,6 +1090,7 @@ class W_Stress:
             return
 
         self.iter = 0
+
         def constraint_error(lam):
             # Get the stressed inverse distribution Gs_inv
             ell = self.ell_rm_mean_std(lam, m)
@@ -729,14 +1102,14 @@ class W_Stress:
 
             self.iter += 1
 
-            error = np.sqrt(2*(mean - m) ** 2 + 2*(std - s) ** 2 + np.sum((rm - RM) ** 2) / len(self.gammas))
+            error = np.sqrt(2 * (mean - m) ** 2 + 2 * (std - s) ** 2 + np.sum((rm - RM) ** 2) / len(self.gammas))
 
             return error
 
         search = True
         while search:
 
-            lambda0 = np.random.normal(size=2+len(rm))
+            lambda0 = np.random.normal(size=2 + len(rm))
 
             sol = optimize.minimize(constraint_error, lambda0, method='Nelder-Mead', tol=1e-5)
             lam = sol.x
@@ -826,7 +1199,8 @@ class W_Stress:
         print(" WD = ", self.wasserstein_distance(), end="\n")
         print(" RM, Utility = ", RM, Utility, end="\n")
         print(" Targets = ", rm, c, end="\n")
-        print(" Base = ", self.get_risk_measure_baseline(), self.get_hara_utility(a, b, eta, self.u, self.F_inv), end="\n")
+        print(" Base = ", self.get_risk_measure_baseline(), self.get_hara_utility(a, b, eta, self.u, self.F_inv),
+              end="\n")
         print("\n")
 
         fig = self.plot_ell_iso(ell)
