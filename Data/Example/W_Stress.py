@@ -95,10 +95,8 @@ class W_Stress:
         plt.plot(self.u, self.F_inv, linestyle='--', color='b', label=r"$\breve{F}_Y$")
         plt.title(title)
         plt.legend(fontsize=14)
-
         plt.yscale('log')
-
-        plt.show()
+        plt.close()
 
         return fig
 
@@ -167,32 +165,40 @@ class W_Stress:
 
         plt.show()
 
-    def plot_dist(self, filename, type="", title="", save=True):
+    def plot_dist(self, filename, type="", title="", density = True, cdf = True, save=True):
         y_P = np.linspace(self.F_inv[5], self.F_inv[-5], 1000)
         y_Q = np.linspace(self.Gs_inv[3], self.Gs_inv[-3], 1000)
 
         self.set_distribution(self.u, self.Gs_inv, y_Q)
 
-        fig = plt.figure(figsize=(5, 4))
-        plt.plot(y_Q, self.gs(y_Q), color='r', label='$g^*_Y$')
-        plt.plot(y_P, self.f(y_P), '--', color='b', label='$f_Y$')
-        plt.ylim(bottom=0)
-        plt.title(title)
-        plt.show()
+        if density:
+            fig = plt.figure(figsize=(5, 4))
+            plt.plot(y_Q, self.gs(y_Q), color='r', label='$g^*_Y$')
+            plt.plot(y_P, self.f(y_P), '--', color='b', label='$f_Y$')
+            plt.legend(fontsize=14)
+            plt.ylim(bottom=0)
+            plt.title(title)
+            plt.show()
 
-        if save:
-            fig.savefig(filename + '_density.pdf', format='pdf')
+            if save:
+                fig.savefig(filename + '_density.pdf', format='pdf')
 
-        fig = plt.figure(figsize=(5, 4))
-        plt.plot(y_Q, self.Gs(y_Q), color='r', label='$G^*_Y$')
-        plt.plot(y_P, self.F(y_P), '--', color='b', label='$F_Y$')
-        plt.legend(fontsize=14)
-        plt.title(title)
-        plt.show()
+        if cdf:
+            fig = plt.figure(figsize=(5, 4))
+            plt.plot(y_Q, self.Gs(y_Q), color='r', label='$G^*_Y$')
+            plt.plot(y_P, self.F(y_P), '--', color='b', label='$F_Y$')
+            plt.legend(fontsize=14)
+            plt.title(title)
+            plt.show()
 
-        if save:
-            fig.savefig(filename + '_CDF.pdf', format='pdf')
+            if save:
+                fig.savefig(filename + '_CDF.pdf', format='pdf')
 
+    def plot_RN(self, filename, type="", title="", save=True):
+        y_P = np.linspace(self.F_inv[5], self.F_inv[-5], 1000)
+        y_Q = np.linspace(self.Gs_inv[3], self.Gs_inv[-3], 1000)
+
+        self.set_distribution(self.u, self.Gs_inv, y_Q)
         idx = np.where(np.diff(self.Gs_inv) < 1e-8)[0][0]
 
         fig = plt.figure(figsize=(4, 4))
@@ -1025,7 +1031,6 @@ class W_Stress:
         print("\n")
 
         fig = self.plot_ell_iso(ell, title)
-        fig = self.plot_ell(ell)
         return lam, self.wasserstein_distance(), self.get_risk_measure_stressed(), fig
 
     def optimise_mean_std(self, m, s, title=""):
