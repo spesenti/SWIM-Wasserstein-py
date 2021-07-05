@@ -89,7 +89,7 @@ class W_Stress:
 
     def plot_ell_iso(self, ell, title=""):
 
-        fig = plt.figure(figsize=(4, 4))
+        fig = plt.figure(figsize=(5, 4))
         plt.plot(self.u, ell, linewidth=0.5, color='g', label=r"$\ell$")
         plt.plot(self.u, self.Gs_inv, label=r"$\breve{G}^*_Y$", color='r')
         plt.plot(self.u, self.F_inv, linestyle='--', color='b', label=r"$\breve{F}_Y$")
@@ -102,7 +102,7 @@ class W_Stress:
 
     def plot_ell(self, ell):
 
-        fig = plt.figure(figsize=(4, 4))
+        fig = plt.figure(figsize=(5, 4))
         plt.subplot(2, 1, 1)
         plt.plot(self.u, ell, linewidth=0.5, color='g', label=r"$\ell$")
         plt.legend(fontsize=14)
@@ -218,7 +218,7 @@ class W_Stress:
             fig.savefig(filename + '_RN.pdf', format='pdf')
 
     
-    def plot_xdensity(self, filename, save=True):
+    def plot_xdensity(self, filename, inputs=None, save=True):
         y_Q = np.linspace(self.Gs_inv[3], self.Gs_inv[-3], 1000)
 
         # Get index for x- and y-values
@@ -231,13 +231,27 @@ class W_Stress:
         data_x_idx = self.data["x"][idx]
         w_idx = w[idx]
 
-        num_inputs = self.data['x'].shape[1]
+        if inputs is None:
+            num_inputs = self.data['x'].shape[1]
+        else:
+            num_inputs = len(inputs)
+            
         nrows = int(np.ceil(num_inputs/2))
-        fig, ax = plt.subplots(nrows=nrows, ncols=2, figsize=(15,10))
+        fig, ax = plt.subplots(nrows=nrows, ncols=2, figsize=(15,2*nrows))
 
-        ind = 0
+        count = 0
+            
         for i in range(nrows):
             for j in range(2):
+                
+                if inputs is not None:
+                    if count >= len(inputs):
+                        break
+                    else:
+                        ind = inputs[count]
+                else:
+                    ind = count
+                
                 x_axis = np.linspace(0.9 * np.quantile(self.data["x"][:, ind], 0.005),
                                      np.quantile(self.data["x"][:, ind], 0.995) * 1.1,
                                      len(w))
@@ -247,14 +261,22 @@ class W_Stress:
 
                 mean_f = np.mean(self.data["x"][:, ind])
                 mean_gs = np.sum(self.data["x"][:, ind] * w) / np.sum(w)
+                
+                if nrows == 1:
+                    ax[j].plot(x_axis, f_x(x_axis), color='blue', label='$f_X$')
+                    ax[j].plot(x_axis, gs_x(x_axis), color='red', label='$g^*_X$')
+                    ax[j].axvline(x=mean_f, color='blue', linestyle='dashed', label='E[$f_X$]')
+                    ax[j].axvline(x=mean_gs, color='red', linestyle='dashed', label='E[$g^*_X$]')
+                    ax[j].set_title('$L_{%d}$'%(ind+1))
+                    
+                else:
+                    ax[i, j].plot(x_axis, f_x(x_axis), color='blue', label='$f_X$')
+                    ax[i, j].plot(x_axis, gs_x(x_axis), color='red', label='$g^*_X$')
+                    ax[i, j].axvline(x=mean_f, color='blue', linestyle='dashed', label='E[$f_X$]')
+                    ax[i, j].axvline(x=mean_gs, color='red', linestyle='dashed', label='E[$g^*_X$]')
+                    ax[i, j].set_title('$L_{%d}$'%(ind+1))
 
-                ax[i, j].plot(x_axis, f_x(x_axis), color='blue', label='$f_X$')
-                ax[i, j].plot(x_axis, gs_x(x_axis), color='red', label='$g^*_X$')
-                ax[i, j].axvline(x=mean_f, color='blue', linestyle='dashed', label='E[$f_X$]')
-                ax[i, j].axvline(x=mean_gs, color='red', linestyle='dashed', label='E[$g^*_X$]')
-                ax[i, j].set_title('$L_{%d}$'%(ind+1))
-
-                ind += 1
+                count += 1
 
         plt.legend()
         fig.tight_layout()
@@ -1023,12 +1045,12 @@ class W_Stress:
             if not (np.abs(rm - self.get_risk_measure_stressed()) > 1e-4).any():
                 search = False
 
-        print("lambda = ", lam)
-        print(" WD = ", self.wasserstein_distance(), end="\n")
-        print(" Risk Measure = ", self.get_risk_measure_stressed(), end="\n")
-        print(" Target Risk Measure = ", rm, end="\n")
-        print(" Base Risk Measure = ", self.get_risk_measure_baseline(), end="\n")
-        print("\n")
+#         print("lambda = ", lam)
+#         print(" WD = ", self.wasserstein_distance(), end="\n")
+#         print(" Risk Measure = ", self.get_risk_measure_stressed(), end="\n")
+#         print(" Target Risk Measure = ", rm, end="\n")
+#         print(" Base Risk Measure = ", self.get_risk_measure_baseline(), end="\n")
+#         print("\n")
 
         fig = self.plot_ell_iso(ell, title)
         return lam, self.wasserstein_distance(), self.get_risk_measure_stressed(), fig
