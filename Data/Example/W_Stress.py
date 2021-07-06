@@ -144,6 +144,7 @@ class W_Stress:
         w = round(1/n, 1) - 0.1
 
         scale = - np.floor(n/2)
+        
         for i in range(n):
             if n%2 == 0:
                 plt.bar(np.arange(10) + scale * w, sensitivity_measures[i], color=colors[i],
@@ -1148,21 +1149,21 @@ class W_Stress:
         RM_P = self.get_risk_measure_baseline()
         mean_P, std_P = self.get_mean_std_baseline()
 
-        print("lambda = ", lam)
-        print(" WD = ", self.wasserstein_distance(), end="\n")
-        print(" RM = ", RM, end="\n")
-        print(" Target Risk Measures = ", rm, end="\n")
-        print(" Base Risk Measure = ", RM_P, end="\n")
-        print(" Mean, Std = ", mean, std, end="\n")
-        print(" Target Mean, Std = ", m, s, end="\n")
-        print(" Base Mean, Std = ", mean_P, std_P, end="\n")
-        print("\n")
+#         print("lambda = ", lam)
+#         print(" WD = ", self.wasserstein_distance(), end="\n")
+#         print(" RM = ", RM, end="\n")
+#         print(" Target Risk Measures = ", rm, end="\n")
+#         print(" Base Risk Measure = ", RM_P, end="\n")
+#         print(" Mean, Std = ", mean, std, end="\n")
+#         print(" Target Mean, Std = ", m, s, end="\n")
+#         print(" Base Mean, Std = ", mean_P, std_P, end="\n")
+#         print("\n")
 
         fig = self.plot_ell_iso(ell, title)
 
         return lam, self.wasserstein_distance(), RM, [mean, std], fig
 
-    def optimise_HARA(self, a, b, eta, c, rm):
+    def optimise_HARA(self, a, b, eta, c, rm, title=""):
 
         self.iter = 0
 
@@ -1212,13 +1213,13 @@ class W_Stress:
         lam_actual = lam.copy()
         lam_actual[0] = np.exp(lam[0])
 
-        print("lambda = ", lam_actual)
-        print(" WD = ", self.wasserstein_distance(), end="\n")
-        print(" RM, Utility = ", RM, Utility, end="\n")
-        print(" Targets = ", rm, c, end="\n")
-        print(" Base = ", self.get_risk_measure_baseline(), self.get_hara_utility(a, b, eta, self.u, self.F_inv), end="\n")
-        print("\n")
+#         print("lambda = ", lam_actual)
+#         print(" WD = ", self.wasserstein_distance(), end="\n")
+#         print(" RM, Utility = ", RM, Utility, end="\n")
+#         print(" Targets = ", rm, c, end="\n")
+#         print(" Base = ", self.get_risk_measure_baseline(), self.get_hara_utility(a, b, eta, self.u, self.F_inv), end="\n")
+#         print("\n")
 
-        fig = self.plot_ell_iso(ell)
+        fig = self.plot_ell_iso(ell, title)
 
         return lam_actual, self.wasserstein_distance(), [RM, Utility], fig
