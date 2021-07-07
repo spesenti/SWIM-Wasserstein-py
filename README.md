@@ -16,4 +16,4 @@ We derive the stressed models under two approaches: 1) distribution and 2) simul
 For an introductory example of the simulation approach, see `W_Stress_example.ipynb` where a spatial dataset for modelling insurance portfolio loss is examined.
 
 ### Further Reading
-For further reading, see https://privpapers.ssrn.com/sol3/papers.cfm?abstract_id=3878879.
+This code is based on the paper: https://privpapers.ssrn.com/sol3/papers.cfm?abstract_id=3878879.
